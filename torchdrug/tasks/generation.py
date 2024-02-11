@@ -153,7 +153,6 @@ class AutoregressiveGeneration(tasks.Task, core.Configurable):
 
         return all_loss, metric
 
-    # TODO to allow for reading any arbitary task
     def reinforce_forward(self, batch):
         all_loss = torch.tensor(0, dtype=torch.float32, device=self.device)
         metric = {}
@@ -225,9 +224,8 @@ class AutoregressiveGeneration(tasks.Task, core.Configurable):
                     self.update_best_result(graph, scores, task.__name__)  # ********
                     reward += (scores / self.reward_temperature).exp()
 
-                    if scores.max().item() > 5:
-                        print(f"{task.__name__} (max) = %s" % scores.max().item())
-                        print(self.best_results[task.__name__])
+                    print(f"{task.__name__} (max) = %s" % scores.max().item())
+                    print(self.best_results[task.__name__])
                 except Exception:
                     raise ValueError("Unknown task `%s`" % task)
 
@@ -770,7 +768,9 @@ class GCPNGeneration(tasks.Task, core.Configurable):
     Parameters:
         model (nn.Module): graph representation model
         atom_types (list or set): set of all possible atom types
-        task (str or list of str, optional): property optimization task(s)
+        task (str or function): property optimization task(s).
+            Available tasks are ``plogp``, ``qed`` and ``function``.
+            You can also provide a function that takes a list of SMILES and returns a list of scores.
         max_edge_unroll (int, optional): max node id difference.
             If not provided, use the statistics from the training set.
         max_node (int, optional): max number of node.
@@ -1072,6 +1072,9 @@ class GCPNGeneration(tasks.Task, core.Configurable):
                 elif task == "qed":
                     metric["QED"] = nan
                     metric["QED (max)"] = nan
+                else:
+                    metric[task.__name__] = nan
+                    metric[f"{task.__name__} (max)"] = nan
             metric["PPO objective"] = nan
 
             return all_loss, metric
@@ -1104,8 +1107,22 @@ class GCPNGeneration(tasks.Task, core.Configurable):
                 if qed.max().item() > 0.93:
                     print("QED max = %s" % qed.max().item())
                     print(self.best_results["QED"])
+
+            # Other tasks
             else:
-                raise ValueError("Unknown task `%s`" % task)
+                try:
+                    smiles_generated = graph.to_smiles()
+                    # NOTE assume tasks are functions/classes, reading multiple smiles to return their scores
+                    scores = task(smiles_generated)
+                    metric[task.__name__] = scores.mean()
+                    metric[f"{task.__name__} (max)"] = scores.max()
+                    self.update_best_result(graph, scores, task.__name__)  # ********
+                    reward += (scores / self.reward_temperature).exp()
+
+                    print(f"{task.__name__} (max) = %s" % scores.max().item())
+                    print(self.best_results[task.__name__])
+                except Exception:
+                    raise ValueError("Unknown task `%s`" % task)
 
         # these graph-level features will broadcast to all masked graphs
         with graph.graph():
