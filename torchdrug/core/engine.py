@@ -48,8 +48,6 @@ class Engine(core.Configurable):
         test_set (data.Dataset): test set
         optimizer (optim.Optimizer): optimizer
         scheduler (lr_scheduler._LRScheduler, optional): scheduler
-        gpus (list of int, optional): GPU ids. By default, CPUs will be used.
-            For multi-node multi-process case, repeat the GPU ids for each node.
         batch_size (int, optional): batch size of a single CPU / GPU
         gradient_interval (int, optional): perform a gradient update every n batches.
             This creates an equivalent batch size of ``batch_size * gradient_interval`` for optimization.
@@ -67,37 +65,70 @@ class Engine(core.Configurable):
         test_set,
         optimizer,
         scheduler=None,
-        gpus=None,
         batch_size=1,
         gradient_interval=1,
         num_worker=0,
         logger="logging",
         log_interval=100,
     ):
-        self.rank = comm.get_rank()
+        try:
+            self.rank = int(os.environ["SLURM_PROCID"])
+        except KeyError:
+            self.rank = comm.get_rank()
+
         self.world_size = comm.get_world_size()
-        self.gpus = gpus
         self.batch_size = batch_size
         self.gradient_interval = gradient_interval
         self.num_worker = num_worker
+        self.gpus = None
+        self.gpus_per_node = 0
 
-        if gpus is None:
+        try:
+            gpus_per_node = int(
+                os.environ["SLURM_GPUS_ON_NODE"]
+            )  # number of GPUs per node
+        except KeyError:
+            #  might be wrong here
+            gpus_per_node = torch.cuda.device_count()
+
+        if gpus_per_node > 0:
+            self.gpus = [i for i in range(gpus_per_node)]
+            nnode = int(self.world_size / gpus_per_node)
+            for i in range(nnode - 1):
+                self.gpus.extend([i for i in range(gpus_per_node)])
+
+            module.logger.info(
+                f"Hello from rank {self.rank} of {self.world_size}"
+                f" {gpus_per_node} allocated GPUs per node.",
+                flush=True,
+            )
+
+        if self.gpus is None:
+            module.logger.info("Using CPU")
             self.device = torch.device("cpu")
         else:
-            if len(gpus) != self.world_size:
+            assert gpus_per_node == torch.cuda.device_count()
+            print(f"gpu_per_node: {gpus_per_node}")
+            if len(self.gpus) != self.world_size:
                 error_msg = "World size is %d but found %d GPUs in the argument"
-                if self.world_size == 1:
-                    error_msg += (
-                        ". Did you launch with `python -m torch.distributed.launch`?"
-                    )
-                raise ValueError(error_msg % (self.world_size, len(gpus)))
-            self.device = torch.device(gpus[self.rank % len(gpus)])
+                raise ValueError(error_msg % (self.world_size, len(self.gpus)))
+            self.device = torch.device(self.gpus[self.rank % len(self.gpus)])
+            print(f"device: {self.gpus[self.rank % len(self.gpus)]}")
 
         if self.world_size > 1 and not dist.is_initialized():
             if self.rank == 0:
                 module.logger.info("Initializing distributed process group")
-            backend = "gloo" if gpus is None else "nccl"
-            comm.init_process_group(backend, init_method="env://")
+            # backend = "gloo" if self.gpus is None else "nccl"
+            # comm.init_process_group(backend, rank=self.rank, world_size=self.world_size, init_method="env://")
+            if self.gpus is None:
+                comm.init_process_group("gloo", init_method="env://")
+            else:
+                comm.init_process_group(
+                    "nccl",
+                    rank=self.rank,
+                    world_size=self.world_size,
+                    init_method="env://",
+                )  # not sure if putting init_method="env://" here is correct
 
         if hasattr(task, "preprocess"):
             if self.rank == 0:
@@ -127,6 +158,7 @@ class Engine(core.Configurable):
         self.test_set = test_set
         self.optimizer = optimizer
         self.scheduler = scheduler
+        self.best_model = None
 
         if isinstance(logger, str):
             if logger == "logging":
@@ -353,39 +385,64 @@ class EngineCV(core.Configurable):
         dataset=None,
         optimizer=None,
         scheduler=None,
-        gpus=None,
         n_folds=5,
-        batch_size=1,
+        batch_size=36,
         gradient_interval=1,
         num_worker=0,
         logger="logging",
         log_interval=100,
     ):
-        self.rank = comm.get_rank()
+
+        try:
+            self.rank = int(os.environ["SLURM_PROCID"])
+        except KeyError:
+            self.rank = comm.get_rank()
+
         self.world_size = comm.get_world_size()
-        self.gpus = gpus
         self.batch_size = batch_size
         self.gradient_interval = gradient_interval
         self.num_worker = num_worker
         self.n_folds = n_folds
+        self.gpus = None
+        self.gpus_per_node = 0
 
-        if gpus is None:
+        try:
+            gpus_per_node = int(
+                os.environ["SLURM_GPUS_ON_NODE"]
+            )  # number of GPUs per node
+        except KeyError:
+            #  might be wrong here
+            gpus_per_node = torch.cuda.device_count()
+
+        if gpus_per_node > 0:
+            self.gpus = [i for i in range(gpus_per_node)]
+            nnode = int(self.world_size / gpus_per_node)
+            for i in range(nnode - 1):
+                self.gpus.extend([i for i in range(gpus_per_node)])
+
+            module.logger.info(
+                f"Hello from rank {self.rank} of {self.world_size}"
+                f" {gpus_per_node} allocated GPUs per node.",
+                flush=True,
+            )
+
+        if self.gpus is None:
+            module.logger.info("Using CPU")
             self.device = torch.device("cpu")
         else:
-            if len(gpus) != self.world_size:
+            assert gpus_per_node == torch.cuda.device_count()
+            print(f"gpu_per_node: {gpus_per_node}")
+            if len(self.gpus) != self.world_size:
                 error_msg = "World size is %d but found %d GPUs in the argument"
-                if self.world_size == 1:
-                    error_msg += (
-                        ". Did you launch with `python -m torch.distributed.launch`?"
-                    )
-                raise ValueError(error_msg % (self.world_size, len(gpus)))
-            self.device = torch.device(gpus[self.rank % len(gpus)])
+                raise ValueError(error_msg % (self.world_size, len(self.gpus)))
+            self.device = torch.device(self.gpus[self.rank % len(self.gpus)])
+            print(f"device: {self.gpus[self.rank % len(self.gpus)]}")
 
         if self.world_size > 1 and not dist.is_initialized():
             if self.rank == 0:
                 module.logger.info("Initializing distributed process group")
-            backend = "gloo" if gpus is None else "nccl"
-            comm.init_process_group(backend, init_method="env://")
+            backend = "gloo" if self.gpus is None else "nccl"
+            comm.init_process_group(backend, rank=self.rank, world_size=self.world_size)
 
         if hasattr(task, "preprocess"):
             if self.rank == 0:
@@ -561,6 +618,7 @@ class EngineCV(core.Configurable):
 
         return metric, pred, target
 
+    # TODO can do better logging than this
     def one_train_val_loop(
         self,
         train_dataset,
@@ -595,6 +653,7 @@ class EngineCV(core.Configurable):
         n_loop = num_epoch // val_interval
 
         best_val_loss = 1e9
+
         no_improvement = 0
 
         ema_model = copy.deepcopy(self.model)
@@ -652,7 +711,6 @@ class EngineCV(core.Configurable):
             train_dataset = torch.utils.data.ConcatDataset(
                 self.dataset_splits[:fold] + self.dataset_splits[fold + 1 :]
             )
-            # TODO target is not right
             best_model, best_pred, target, val_loss = self.one_train_val_loop(
                 train_dataset=train_dataset,
                 val_dataset=val_dataset,
@@ -669,6 +727,7 @@ class EngineCV(core.Configurable):
             logger.warning("\nBest val loss of {} fold: {:.4f}".format(fold, val_loss))
             self.reset_model_and_epoch()
         best_idx = torch.argmin(val_losses).item()
+        self.best_model = models[best_idx]
         return models[best_idx], y_preds, y_trues
 
     def load(self, checkpoint, load_optimizer=True, strict=True):
@@ -696,7 +755,7 @@ class EngineCV(core.Configurable):
 
         comm.synchronize()
 
-    def save(self, checkpoint):
+    def savebest(self, checkpoint):
         """
         Save checkpoint to file.
 
@@ -708,7 +767,7 @@ class EngineCV(core.Configurable):
         checkpoint = os.path.expanduser(checkpoint)
         if self.rank == 0:
             state = {
-                "model": self.model.state_dict(),
+                "model": self.best_model.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
             }
             torch.save(state, checkpoint)
