@@ -714,8 +714,6 @@ class Unsupervised(nn.Module, core.Configurable):
         return pred
 
 
-# TODO to be able to specify idx for each tasks
-# assume idxs begin from 0
 @R.register("tasks.PropertyPrediction_loc")
 class PropertyPrediction_local(tasks.Task, core.Configurable):
     """
@@ -723,13 +721,16 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
     to have idxs in the graph objects in the first place
     read any columns with "idxs"
     This class is also compatible with semi-supervised learning.
-
+    Assume there are columns in the dataset with "idx" in the name
+    Assume idx is 0-based
+    
     Parameters:
         model (nn.Module): graph representation model
         task (str, list or dict, optional): training task(s).
             For dict, the keys are tasks and the values are the corresponding weights.
         criterion (str, list or dict, optional): training criterion(s). For dict, the keys are criterions and the values
             are the corresponding weights. Available criterions are ``mse``, ``huber``, ``smooth_l1``, ``bce`` and ``ce``.
+        idx_pos (list, optional): position of atomic indices for each task
         metric (str or list of str, optional): metric(s).
             Available metrics are ``mae``, ``rmse``, ``auprc`` and ``auroc``.
         loss_param (float): parameter in the loss function
@@ -753,6 +754,7 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
         task=(),
         criterion="mse",
         metric=("mae", "rmse"),
+        idx_pos=None,
         loss_param=None,
         num_mlp_layer=1,
         normalization=True,
@@ -767,6 +769,7 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
         self.task = task
         self.criterion = criterion
         self.metric = metric
+        self.idx_pos = idx_pos
         self.loss_param = loss_param
         self.num_mlp_layer = num_mlp_layer
         # For classification tasks, we disable normalization tricks.
@@ -817,13 +820,26 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
 
         hidden_dims = [self.model.output_dim] * (self.num_mlp_layer - 1)
 
-        # TODO to adjust MLP size automatically
-        self.mlp = layers.MLP(
-            self.model.output_dim * 2,
-            hidden_dims + [sum(self.num_class)],
-            batch_norm=self.mlp_batch_norm,
-            dropout=self.mlp_dropout,
-        )
+        # different MLP for each task when idx_pos is specified
+        if self.idx_pos:
+            self.mlps = nn.ModuleList()
+            for i in range(len(self.task)):  # or len(idx_pos)
+                self.mlps.append(
+                    layers.MLP(
+                        self.model.output_dim,
+                        hidden_dims + [1],
+                        batch_norm=self.mlp_batch_norm,
+                        dropout=self.mlp_dropout,
+                    )
+                )
+
+        else:
+            self.mlp = layers.MLP(
+                self.model.output_dim * sum(self.num_class),
+                hidden_dims + [sum(self.num_class)],
+                batch_norm=self.mlp_batch_norm,
+                dropout=self.mlp_dropout,
+            )
 
     def forward(self, batch):
         """"""
@@ -902,7 +918,7 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
 
         return all_loss, metric
 
-    # TODO basket here
+    # The basket here
     def predict(self, batch, all_loss=None, metric=None):
         graph = batch["graph"]
 
@@ -925,9 +941,17 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
             graph, graph.node_feature.float(), all_loss=all_loss, metric=metric
         )
         node_feat = output["node_feature"]
-        loc_feats = [node_feat[idx_list] for idx_list in idxs_adj]
-        loc_feats = torch.cat(loc_feats, dim=1)
-        pred = self.mlp(loc_feats)
+
+        if self.idx_pos:
+            pred = []
+            for i in range(len(self.idx_pos)):
+                loc_feats = node_feat[idxs_adj[i]]
+                pred.append(self.mlps[i](loc_feats))
+            pred = torch.cat(pred, dim=1)
+        else:
+            loc_feats = [node_feat[idx_list] for idx_list in idxs_adj]
+            loc_feats = torch.cat(loc_feats, dim=1)
+            pred = self.mlp(loc_feats)
         if self.normalization:
             pred = pred * self.std + self.mean
         return pred
