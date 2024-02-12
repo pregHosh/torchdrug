@@ -100,7 +100,6 @@ class Engine(core.Configurable):
             module.logger.info(
                 f"Hello from rank {self.rank} of {self.world_size}"
                 f" {gpus_per_node} allocated GPUs per node.",
-                flush=True,
             )
 
         if self.gpus is None:
@@ -423,7 +422,6 @@ class EngineCV(core.Configurable):
             module.logger.info(
                 f"Hello from rank {self.rank} of {self.world_size}"
                 f" {gpus_per_node} allocated GPUs per node.",
-                flush=True,
             )
 
         if self.gpus is None:
