@@ -721,8 +721,8 @@ class EngineCV(core.Configurable):
                 tuple: A tuple containing the best model, predicted labels, and true labels.
             """
             val_losses = torch.zeros(self.n_folds)
-            y_preds = torch.tensor([])
-            y_trues = torch.tensor([])
+            y_preds = torch.tensor([], device=self.device)
+            y_trues = torch.tensor([], device=self.device)
             models = []
             for fold in range(self.n_folds):
                 module.logger.info(f"Fold: {fold}\n")
