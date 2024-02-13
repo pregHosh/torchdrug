@@ -107,12 +107,11 @@ class Engine(core.Configurable):
             self.device = torch.device("cpu")
         else:
             assert gpus_per_node == torch.cuda.device_count()
-            print(f"gpu_per_node: {gpus_per_node}")
+            #print(f"gpu_per_node: {gpus_per_node}")
             if len(self.gpus) != self.world_size:
                 error_msg = "World size is %d but found %d GPUs in the argument"
                 raise ValueError(error_msg % (self.world_size, len(self.gpus)))
             self.device = torch.device(self.gpus[self.rank % len(self.gpus)])
-            print(f"device: {self.gpus[self.rank % len(self.gpus)]}")
 
         if self.world_size > 1 and not dist.is_initialized():
             if self.rank == 0:
@@ -157,7 +156,6 @@ class Engine(core.Configurable):
         self.test_set = test_set
         self.optimizer = optimizer
         self.scheduler = scheduler
-        self.best_model = None
 
         if isinstance(logger, str):
             if logger == "logging":
@@ -404,6 +402,7 @@ class EngineCV(core.Configurable):
         self.n_folds = n_folds
         self.gpus = None
         self.gpus_per_node = 0
+        self.best_model = None
 
         try:
             gpus_per_node = int(
@@ -429,12 +428,11 @@ class EngineCV(core.Configurable):
             self.device = torch.device("cpu")
         else:
             assert gpus_per_node == torch.cuda.device_count()
-            print(f"gpu_per_node: {gpus_per_node}")
+            #print(f"gpu_per_node: {gpus_per_node}")
             if len(self.gpus) != self.world_size:
                 error_msg = "World size is %d but found %d GPUs in the argument"
                 raise ValueError(error_msg % (self.world_size, len(self.gpus)))
             self.device = torch.device(self.gpus[self.rank % len(self.gpus)])
-            print(f"device: {self.gpus[self.rank % len(self.gpus)]}")
 
         if self.world_size > 1 and not dist.is_initialized():
             if self.rank == 0:
@@ -616,117 +614,149 @@ class EngineCV(core.Configurable):
 
         return metric, pred, target
 
-    # TODO can do better logging than this
     def one_train_val_loop(
-        self,
-        train_dataset,
-        val_dataset,
-        num_epoch: int = 10,
-        val_interval: int = 3,
-        early_stop: int = 5,
-        weight_target: Optional[Union[List[float], torch.Tensor]] = None,
-        ema_decay: float = 0.99,
-    ):
-        train_sampler = torch_data.DistributedSampler(
-            train_dataset, self.world_size, self.rank
-        )
-        train_loader = data.DataLoader(
+            self,
             train_dataset,
-            self.batch_size,
-            sampler=train_sampler,
-            num_workers=self.num_worker,
-        )
-
-        val_sampler = torch_data.DistributedSampler(
-            val_dataset, self.world_size, self.rank
-        )
-        val_loader = data.DataLoader(
             val_dataset,
-            self.batch_size,
-            sampler=val_sampler,
-            num_workers=self.num_worker,
-        )
-        assert num_epoch > val_interval
-        "Number of epochs must be greater than validation interval"
-        n_loop = num_epoch // val_interval
+            num_epoch: int = 10,
+            val_interval: int = 3,
+            early_stop: int = 5,
+            weight_target: Optional[Union[List[float], torch.Tensor]] = None,
+            ema_decay: float = 0.99,
+        ):
+            """
+            Perform one training-validation loop.
 
-        best_val_loss = 1e9
+            Args:
+                train_dataset: The training dataset.
+                val_dataset: The validation dataset.
+                num_epoch (int): The total number of epochs to train.
+                val_interval (int): The interval at which to perform validation.
+                early_stop (int): The number of consecutive validations without improvement to trigger early stopping.
+                weight_target (Optional[Union[List[float], torch.Tensor]]): The weight for each target in the validation loss calculation.
+                ema_decay (float): The exponential moving average decay factor.
 
-        no_improvement = 0
-
-        ema_model = copy.deepcopy(self.model)
-        for p in ema_model.parameters():
-            p.requires_grad_(False)
-
-        best_model = copy.deepcopy(ema_model)
-        best_pred = None
-        for loop in range(n_loop):
-            self.train(train_loader, train_sampler, num_epoch=val_interval)
-            ema(ema_model, self.model, ema_decay)
-            val_loss, pred, target = self.evaluate(val_loader, log=True)
-            if weight_target is None:
-                val_loss_list = torch.tensor(
-                    list(val_loss.values()), dtype=torch.float32
-                )
-                val_loss_mean = torch.mean(val_loss_list)
-            else:
-                val_loss_list = torch.tensor(
-                    list(val_loss.values()), dtype=torch.float32
-                )
-                val_loss_mean = torch.sum(val_loss_list * weight_target) / torch.sum(
-                    weight_target
-                )
-            logger.warning(
-                "Epoch [{}/{}], Val Loss: {:.4f}".format(
-                    (loop + 1) * val_interval, num_epoch, val_loss_mean
-                )
+            Returns:
+                Tuple: A tuple containing the best model, best predictions, target values, and best validation loss.
+            """
+            train_sampler = torch_data.DistributedSampler(
+                train_dataset, self.world_size, self.rank
             )
-            if val_loss_mean > best_val_loss:
-                no_improvement += 1
-                if no_improvement == early_stop:
-                    logger.warning("Early stopping due to no improvement.")
-                    break
-            else:
-                no_improvement = 0
-                best_val_loss = val_loss_mean
-                best_pred = pred
-                best_model = copy.deepcopy(ema_model)
+            train_loader = data.DataLoader(
+                train_dataset,
+                self.batch_size,
+                sampler=train_sampler,
+                num_workers=self.num_worker,
+            )
 
-        return best_model, best_pred, target, best_val_loss
+            val_sampler = torch_data.DistributedSampler(
+                val_dataset, self.world_size, self.rank
+            )
+            val_loader = data.DataLoader(
+                val_dataset,
+                self.batch_size,
+                sampler=val_sampler,
+                num_workers=self.num_worker,
+            )
+            assert num_epoch > val_interval
+            "Number of epochs must be greater than validation interval"
+            n_loop = num_epoch // val_interval
+
+            best_val_loss = 1e9
+
+            no_improvement = 0
+
+            ema_model = copy.deepcopy(self.model)
+            for p in ema_model.parameters():
+                p.requires_grad_(False)
+
+            best_model = copy.deepcopy(ema_model)
+            best_pred = None
+            for loop in range(n_loop):
+                self.train(train_loader, train_sampler, num_epoch=val_interval)
+                ema(ema_model, self.model, ema_decay)
+                val_loss, pred, target = self.evaluate(val_loader, log=True)
+                if weight_target is None:
+                    val_loss_list = torch.tensor(
+                        list(val_loss.values()), dtype=torch.float32
+                    )
+                    val_loss_mean = torch.mean(val_loss_list)
+                else:
+                    val_loss_list = torch.tensor(
+                        list(val_loss.values()), dtype=torch.float32
+                    )
+                    val_loss_mean = torch.sum(val_loss_list * weight_target) / torch.sum(
+                        weight_target
+                    )
+                    
+                module.logging.warning(
+                    f"Epoch [{(loop + 1) * val_interval}/{num_epoch}], Val Loss: {val_loss_mean:.4f}"
+                )
+                if val_loss_mean > best_val_loss:
+                    no_improvement += 1
+                    if no_improvement == early_stop:
+                        module.logger.info("Early stopping due to no improvement.")
+                        break
+                else:
+                    no_improvement = 0
+                    best_val_loss = val_loss_mean
+                    best_pred = pred
+                    best_model = copy.deepcopy(ema_model)
+
+            return best_model, best_pred, target, best_val_loss
 
     def k_fold_train_val(
-        self, num_epoch=1, val_interval=3, early_stop=15, ema_decay=0.99
-    ):
-        val_losses = torch.zeros(self.n_folds)
-        y_preds = torch.tensor([])
-        y_trues = torch.tensor([])
-        models = []
-        for fold in range(self.n_folds):
-            logger.warning("Fold:", fold)
-            torch.manual_seed(0)
+            self, num_epoch=1, val_interval=3, early_stop=15, ema_decay=0.99
+        ):
+            """
+            Perform k-fold cross-validation training and validation.
 
-            val_dataset = self.dataset_splits[fold]
-            train_dataset = torch.utils.data.ConcatDataset(
-                self.dataset_splits[:fold] + self.dataset_splits[fold + 1 :]
-            )
-            best_model, best_pred, target, val_loss = self.one_train_val_loop(
-                train_dataset=train_dataset,
-                val_dataset=val_dataset,
-                num_epoch=num_epoch,
-                val_interval=val_interval,
-                early_stop=early_stop,
-                weight_target=None,
-                ema_decay=ema_decay,
-            )
-            models.append(best_model)
-            y_preds = torch.cat((y_preds, best_pred.clone().detach()))
-            y_trues = torch.cat((y_trues, target.clone().detach()))
-            val_losses[fold] = val_loss
-            logger.warning("\nBest val loss of {} fold: {:.4f}".format(fold, val_loss))
-            self.reset_model_and_epoch()
-        best_idx = torch.argmin(val_losses).item()
-        self.best_model = models[best_idx]
-        return models[best_idx], y_preds, y_trues
+            Args:
+                num_epoch (int): Number of epochs to train the model for each fold. Default is 1.
+                val_interval (int): Interval between validation steps. Default is 3.
+                early_stop (int): Number of epochs to wait for improvement in validation loss before early stopping. Default is 15.
+                ema_decay (float): Decay rate for exponential moving average of model weights. Default is 0.99.
+
+            Returns:
+                tuple: A tuple containing the best model, predicted labels, and true labels.
+            """
+            val_losses = torch.zeros(self.n_folds)
+            y_preds = torch.tensor([])
+            y_trues = torch.tensor([])
+            models = []
+            for fold in range(self.n_folds):
+                module.logger.info(f"Fold: {fold}\n")
+                torch.manual_seed(0)
+
+                val_dataset = self.dataset_splits[fold]
+                train_dataset = torch.utils.data.ConcatDataset(
+                    self.dataset_splits[:fold] + self.dataset_splits[fold + 1 :]
+                )
+                best_model_i, best_pred, target, val_loss = self.one_train_val_loop(
+                    train_dataset=train_dataset,
+                    val_dataset=val_dataset,
+                    num_epoch=num_epoch,
+                    val_interval=val_interval,
+                    early_stop=early_stop,
+                    weight_target=None,
+                    ema_decay=ema_decay,
+                )
+                models.append(best_model_i)
+                        
+                y_preds = torch.cat((y_preds, best_pred.clone().detach()))
+                y_trues = torch.cat((y_trues, target.clone().detach()))
+                val_losses[fold] = val_loss
+                
+                module.logging.warning(
+                    f"\nBest val loss of {fold} fold: {val_loss:.4f}\n"
+                )
+
+                self.reset_model_and_epoch()
+                
+            best_idx = torch.argmin(val_losses).item()
+            self.best_model = models[best_idx]
+            
+            return models[best_idx], y_preds, y_trues
 
     def load(self, checkpoint, load_optimizer=True, strict=True):
         """
