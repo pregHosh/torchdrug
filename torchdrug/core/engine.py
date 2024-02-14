@@ -688,10 +688,11 @@ class EngineCV(core.Configurable):
                     val_loss_mean = torch.sum(val_loss_list * weight_target) / torch.sum(
                         weight_target
                     )
-                    
-                module.logging.warning(
-                    f"Epoch [{(loop + 1) * val_interval}/{num_epoch}], Val Loss: {val_loss_mean:.4f}"
-                )
+                
+                if self.rank == 0:
+                    module.logging.warning(
+                        f"Epoch [{(loop + 1) * val_interval}/{num_epoch}], Val Loss: {val_loss_mean:.4f}"
+                    )
                 if val_loss_mean > best_val_loss:
                     no_improvement += 1
                     if no_improvement == early_stop:
@@ -746,10 +747,10 @@ class EngineCV(core.Configurable):
                 y_preds = torch.cat((y_preds, best_pred.clone().detach()))
                 y_trues = torch.cat((y_trues, target.clone().detach()))
                 val_losses[fold] = val_loss
-                
-                module.logging.warning(
-                    f"\nBest val loss of {fold} fold: {val_loss:.4f}\n"
-                )
+                if self.rank == 0:
+                    module.logging.warning(
+                        f"\nBest val loss of {fold} fold: {val_loss:.4f}\n"
+                    )
 
                 self.reset_model_and_epoch()
                 
