@@ -721,8 +721,9 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
     to have idxs in the graph objects in the first place
     read any columns with "idxs"
     This class is also compatible with semi-supervised learning.
-    Assume there are columns in the dataset with "idx" in the name
-    Assume idx is 0-based
+    
+    Assume there are columns in the dataset with "idx" in the name.
+    Assume idx is 0-based.
     
     Parameters:
         model (nn.Module): graph representation model
@@ -822,11 +823,17 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
 
         # different MLP for each task when idx_pos is specified
         if self.idx_pos:
+            #TODO: chk likely fucl up
             self.mlps = nn.ModuleList()
             for i in range(len(self.task)):  # or len(idx_pos)
+                
+                if len(self.idx_pos) == 1:
+                    nnode = 1
+                else:
+                    nnode = len(self.idx_pos[i])
                 self.mlps.append(
                     layers.MLP(
-                        self.model.output_dim,
+                        self.model.output_dim*nnode,
                         hidden_dims + [1],
                         batch_norm=self.mlp_batch_norm,
                         dropout=self.mlp_dropout,
@@ -944,9 +951,16 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
 
         if self.idx_pos:
             pred = []
-            for i in range(len(self.idx_pos)):
-                loc_feats = node_feat[idxs_adj[i]]
+            for i, idxs in enumerate(self.idx_pos):
+                
+                
+                if len(idxs) > 1:
+                    loc_feats = [node_feat[idxs_adj[idx]] for idx in idxs]
+                    loc_feats = torch.cat(loc_feats, dim=1)
+                else:
+                    loc_feats = node_feat[idxs_adj[idxs[0]]]
                 pred.append(self.mlps[i](loc_feats))
+            
             pred = torch.cat(pred, dim=1)
         else:
             loc_feats = [node_feat[idx_list] for idx_list in idxs_adj]
