@@ -102,7 +102,7 @@ class AttributeMasking(tasks.Task, core.Configurable):
         self.num_mlp_layer = num_mlp_layer
         self.graph_construction_model = graph_construction_model
 
-    def preprocess(self, train_set, valid_set, test_set):
+    def preprocess(self, train_set, valid_set=None, test_set=None):
         data = train_set[0]
         self.view = getattr(data["graph"], "view", "atom")
         if hasattr(self.model, "node_output_dim"):

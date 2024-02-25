@@ -89,50 +89,60 @@ class AutoregressiveGeneration(tasks.Task, core.Configurable):
         self.baseline_momentum = baseline_momentum
         self.best_results = defaultdict(list)
         self.batch_id = 0
+        self.remap_atom_type = None
 
-    def preprocess(self, train_set):
+    def preprocess(self, train_set=None, atom_types=None):
         """
         Add atom id mapping and random BFS order to the training set.
 
         Compute ``max_edge_unroll`` and ``max_node`` on the training set if not provided.
         """
-        remap_atom_type = transforms.RemapAtomType(train_set.atom_types)
-        train_set.transform = transforms.Compose(
-            [
-                train_set.transform,
-                remap_atom_type,
-                transforms.RandomBFSOrder(),
-            ]
-        )
-        self.register_buffer("id2atom", remap_atom_type.id2atom)
-        self.register_buffer("atom2id", remap_atom_type.atom2id)
+        
+        # read input atom types first if provided
+        if atom_types:
+            self.remap_atom_type = transforms.RemapAtomType(atom_types)
+        elif atom_types is None and self.remap_atom_type is None:
+            self.remap_atom_type = transforms.RemapAtomType(train_set.atom_types)
+        if train_set:
+            train_set.transform = transforms.Compose(
+                [
+                    train_set.transform,
+                    self.remap_atom_type,
+                    transforms.RandomBFSOrder(),
+                ]
+            )     
 
-        if self.max_edge_unroll is None or self.max_node is None:
-            self.max_edge_unroll = 0
-            self.max_node = 0
+            if self.max_edge_unroll is None or self.max_node is None:
+                self.max_edge_unroll = 0
+                self.max_node = 0
 
-            train_set = tqdm(
-                train_set, "Computing max number of nodes and edge unrolling"
-            )
-            for sample in train_set:
-                graph = sample["graph"]
-                if graph.edge_list.numel():
-                    edge_unroll = (
-                        (graph.edge_list[:, 0] - graph.edge_list[:, 1])
-                        .abs()
-                        .max()
-                        .item()
-                    )
-                    self.max_edge_unroll = max(self.max_edge_unroll, edge_unroll)
-                self.max_node = max(self.max_node, graph.num_node)
+                train_set = tqdm(
+                    train_set, "Computing max number of nodes and edge unrolling"
+                )
+                for sample in train_set:
+                    graph = sample["graph"]
+                    if graph.edge_list.numel():
+                        edge_unroll = (
+                            (graph.edge_list[:, 0] - graph.edge_list[:, 1])
+                            .abs()
+                            .max()
+                            .item()
+                        )
+                        self.max_edge_unroll = max(self.max_edge_unroll, edge_unroll)
+                    self.max_node = max(self.max_node, graph.num_node)
 
-            logger.warning(
-                "max node = %d, max edge unroll = %d"
-                % (self.max_node, self.max_edge_unroll)
-            )
+                logger.warning(
+                    "max node = %d, max edge unroll = %d"
+                    % (self.max_node, self.max_edge_unroll)
+                )
 
-        self.register_buffer("node_baseline", torch.zeros(self.max_node + 1))
-        self.register_buffer("edge_baseline", torch.zeros(self.max_node + 1))
+            self.register_buffer("node_baseline", torch.zeros(self.max_node + 1))
+            self.register_buffer("edge_baseline", torch.zeros(self.max_node + 1))
+        
+        self.register_buffer("id2atom", self.remap_atom_type.id2atom)
+        self.register_buffer("atom2id", self.remap_atom_type.atom2id)
+
+
 
     def forward(self, batch):
         """"""
@@ -816,7 +826,7 @@ class GCPNGeneration(tasks.Task, core.Configurable):
         self.best_results = defaultdict(list)
         self.batch_id = 0
 
-        remap_atom_type = transforms.RemapAtomType(atom_types)
+        self.remap_atom_type = transforms.RemapAtomType(atom_types)
         self.register_buffer("id2atom", remap_atom_type.id2atom)
         self.register_buffer("atom2id", remap_atom_type.atom2id)
 
@@ -851,19 +861,25 @@ class GCPNGeneration(tasks.Task, core.Configurable):
         self.agent_mlp_node2 = copy.deepcopy(self.mlp_node2)
         self.agent_mlp_edge = copy.deepcopy(self.mlp_edge)
 
-    def preprocess(self, train_set, valid_set, test_set):
+    def preprocess(self, train_set=None):
         """
         Add atom id mapping and random BFS order to the training set.
 
         Compute ``max_edge_unroll`` and ``max_node`` on the training set if not provided.
         """
-        remap_atom_type = transforms.RemapAtomType(train_set.atom_types)
-        train_set.transform = transforms.Compose(
-            [
-                train_set.transform,
-                transforms.RandomBFSOrder(),
-            ]
-        )
+        # read input atom types first if provided
+ 
+        if self.remap_atom_type is None:
+            remap_atom_type = transforms.RemapAtomType(train_set.atom_types)
+        if train_set:
+            train_set.transform = transforms.Compose(
+                [
+                    train_set.transform,
+                    remap_atom_type,
+                    transforms.RandomBFSOrder(),
+                ]
+            )     
+
 
         if self.max_edge_unroll is None or self.max_node is None:
             self.max_edge_unroll = 0
@@ -1128,8 +1144,6 @@ class GCPNGeneration(tasks.Task, core.Configurable):
         with graph.graph():
             graph.reward = reward
             graph.original_num_nodes = graph.num_nodes
-
-        # graph.atom_type = self.atom2id[graph.atom_type]
 
         is_training = self.training
         # easily got nan if BN is trained
