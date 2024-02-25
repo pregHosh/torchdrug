@@ -35,8 +35,8 @@ class PropertyPrediction(tasks.Task, core.Configurable):
         mlp_batch_norm (bool, optional): apply batch normalization in mlp or not
         mlp_dropout (float, optional): dropout in mlp
         graph_construction_model (nn.Module, optional): graph construction model
-        verbose (int, optional): output verbose level
         std_mean (tuple, optional): standard deviation and mean of the target
+        verbose (int, optional): output verbose level
     """
 
     eps = 1e-10
@@ -55,8 +55,8 @@ class PropertyPrediction(tasks.Task, core.Configurable):
         mlp_batch_norm=False,
         mlp_dropout=0,
         graph_construction_model=None,
-        verbose=0,
         std_mean=None,
+        verbose=0,
     ):
         super(PropertyPrediction, self).__init__()
         self.model = model
@@ -743,6 +743,7 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
         mlp_batch_norm (bool, optional): apply batch normalization in mlp or not
         mlp_dropout (float, optional): dropout in mlp
         graph_construction_model (nn.Module, optional): graph construction model
+        std_mean=None,
         verbose (int, optional): output verbose level
     """
 
@@ -763,6 +764,7 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
         mlp_batch_norm=False,
         mlp_dropout=0,
         graph_construction_model=None,
+        std_mean=None,
         verbose=0,
     ):
         super(PropertyPrediction_local, self).__init__()
@@ -783,6 +785,22 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
         self.graph_construction_model = graph_construction_model
         self.verbose = verbose
 
+        self.mlp = None
+        self.mlps = nn.ModuleList()
+        
+        if std_mean:
+            self.std = std_mean[0]
+            self.mean = std_mean[1]
+
+        if self.num_class:
+            hidden_dims = [self.model.output_dim] * (self.num_mlp_layer - 1)
+            self.mlp = layers.MLP(
+                self.model.output_dim,
+                hidden_dims + [sum(self.num_class)],
+                batch_norm=self.mlp_batch_norm,
+                dropout=self.mlp_dropout,
+            )
+            
     def preprocess(self, train_set, valid_set=None, test_set=None):
         """
         Compute the mean and derivation for each task on the training set.
@@ -823,10 +841,7 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
 
         # different MLP for each task when idx_pos is specified
         if self.idx_pos:
-            #TODO: chk likely fucl up
-            self.mlps = nn.ModuleList()
             for i in range(len(self.task)):  # or len(idx_pos)
-                
                 if len(self.idx_pos) == 1:
                     nnode = 1
                 else:

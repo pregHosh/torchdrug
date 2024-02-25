@@ -1,6 +1,6 @@
 from .task import Task
 
-from .property_prediction import PropertyPrediction, MultipleBinaryClassification, \
+from .property_prediction import PropertyPrediction, PropertyPrediction_local, MultipleBinaryClassification, \
     NodePropertyPrediction, InteractionPrediction, Unsupervised
 from .pretrain import EdgePrediction, AttributeMasking, ContextPrediction, DistancePrediction, \
     AnglePrediction, DihedralPrediction
@@ -39,7 +39,7 @@ def _get_metric_name(metric):
 
 
 __all__ = [
-    "PropertyPrediction", "MultipleBinaryClassification", "NodePropertyPrediction", "InteractionPrediction",
+    "PropertyPrediction", "PropertyPrediction_local", "MultipleBinaryClassification", "NodePropertyPrediction", "InteractionPrediction",
     "Unsupervised",
     "EdgePrediction", "AttributeMasking", "ContextPrediction", "DistancePrediction", "AnglePrediction",
     "DihedralPrediction",
