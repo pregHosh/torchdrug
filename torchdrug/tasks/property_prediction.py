@@ -794,48 +794,66 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
 
         if self.num_class:
             hidden_dims = [self.model.output_dim] * (self.num_mlp_layer - 1)
-            self.mlp = layers.MLP(
-                self.model.output_dim,
-                hidden_dims + [sum(self.num_class)],
-                batch_norm=self.mlp_batch_norm,
-                dropout=self.mlp_dropout,
-            )
+    
+            if self.idx_pos:
+                for i in range(len(self.task)):  # or len(idx_pos)
+                    if len(self.idx_pos) == 1:
+                        nnode = 1
+                    else:
+                        nnode = len(self.idx_pos[i])
+                    self.mlps.append(
+                        layers.MLP(
+                            self.model.output_dim*nnode,
+                            hidden_dims + [1],
+                            batch_norm=self.mlp_batch_norm,
+                            dropout=self.mlp_dropout,
+                        )
+                    )
+            else:
+                self.mlp = layers.MLP(
+                    self.model.output_dim,
+                    hidden_dims + [sum(self.num_class)],
+                    batch_norm=self.mlp_batch_norm,
+                    dropout=self.mlp_dropout,
+                )
             
-    def preprocess(self, train_set, valid_set=None, test_set=None):
+    def preprocess(self, train_set=None, valid_set=None, test_set=None):
         """
         Compute the mean and derivation for each task on the training set.
         """
         values = defaultdict(list)
-        for sample in train_set:
-            if not sample.get("labeled", True):
-                continue
-            for task in self.task:
-                if not math.isnan(sample[task]):
-                    values[task].append(sample[task])
-        mean = []
-        std = []
-        weight = []
-        num_class = []
-        for task, w in self.task.items():
-            value = torch.tensor(values[task])
-            mean.append(value.float().mean())
-            std.append(value.float().std())
-            weight.append(w)
-            if value.ndim > 1:
-                num_class.append(value.shape[1])
-            elif value.dtype == torch.long:
-                task_class = value.max().item()
-                if task_class == 1 and "bce" in self.criterion:
-                    num_class.append(1)
+        
+        if train_set:
+            for sample in train_set:
+                if not sample.get("labeled", True):
+                    continue
+                for task in self.task:
+                    if not math.isnan(sample[task]):
+                        values[task].append(sample[task])
+            mean = []
+            std = []
+            weight = []
+            num_class = []
+            for task, w in self.task.items():
+                value = torch.tensor(values[task])
+                mean.append(value.float().mean())
+                std.append(value.float().std())
+                weight.append(w)
+                if value.ndim > 1:
+                    num_class.append(value.shape[1])
+                elif value.dtype == torch.long:
+                    task_class = value.max().item()
+                    if task_class == 1 and "bce" in self.criterion:
+                        num_class.append(1)
+                    else:
+                        num_class.append(task_class + 1)
                 else:
-                    num_class.append(task_class + 1)
-            else:
-                num_class.append(1)
+                    num_class.append(1)
 
-        self.register_buffer("mean", torch.as_tensor(mean, dtype=torch.float))
-        self.register_buffer("std", torch.as_tensor(std, dtype=torch.float))
-        self.register_buffer("weight", torch.as_tensor(weight, dtype=torch.float))
-        self.num_class = self.num_class or num_class
+            self.register_buffer("mean", torch.as_tensor(mean, dtype=torch.float))
+            self.register_buffer("std", torch.as_tensor(std, dtype=torch.float))
+            self.register_buffer("weight", torch.as_tensor(weight, dtype=torch.float))
+            self.num_class = self.num_class or num_class
 
         hidden_dims = [self.model.output_dim] * (self.num_mlp_layer - 1)
 
@@ -854,7 +872,6 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
                         dropout=self.mlp_dropout,
                     )
                 )
-
         else:
             self.mlp = layers.MLP(
                 self.model.output_dim * sum(self.num_class),
@@ -950,27 +967,31 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
             idxs_adj = []
             for col in idx_cols:
                 idx_i = batch[col]
-                idx_i[1:] += n_atoms_csum[:-1]
-                idxs_adj.append(idx_i)
+                if n_atoms_csum[-1] == 0:
+                    idxs_adj.append(idx_i)
+                else:
+                    idx_i[1:] += n_atoms_csum[:-1]
+                    idxs_adj.append(idx_i)
             return idxs_adj
 
-        n_atoms_csum = torch.cumsum(batch["graph"].num_atoms, dim=0)
-        idxs_adj = get_adj_idxs(batch, n_atoms_csum)
-
+        try:
+            n_atoms_csum = torch.cumsum(batch["graph"].num_atoms, dim=0)
+        except AttributeError:
+            n_atoms_csum = torch.tensor([0])
+            
+        idxs_adj = get_adj_idxs(batch, n_atoms_csum)  
         if self.graph_construction_model:
             graph = self.graph_construction_model(graph)
         output = self.model(
             graph, graph.node_feature.float(), all_loss=all_loss, metric=metric
         )
-        node_feat = output["node_feature"]
-
+        node_feat = output["node_feature"]        
         if self.idx_pos:
             pred = []
             for i, idxs in enumerate(self.idx_pos):
-                
-                
                 if len(idxs) > 1:
                     loc_feats = [node_feat[idxs_adj[idx]] for idx in idxs]
+                    loc_feats = [feat.unsqueeze(0) if feat.dim() == 1 else feat for feat in loc_feats]      
                     loc_feats = torch.cat(loc_feats, dim=1)
                 else:
                     loc_feats = node_feat[idxs_adj[idxs[0]]]
