@@ -1,6 +1,6 @@
 package:
   name: torchdrug
-  version: 0.2.1
+  version: 1.0.0
 
 source:
   path: ../..
@@ -11,9 +11,6 @@ requirements:
     - pip
   run:
     - python >=3.7,<3.11
-    - pytorch >=1.8.0
-    - pytorch-scatter >=2.0.8
-    - pytorch-cluster >=1.5.9
     - decorator
     - numpy >=1.11
     - rdkit >=2020.09
