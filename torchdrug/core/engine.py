@@ -51,6 +51,8 @@ class Engine(core.Configurable):
         batch_size (int, optional): batch size of a single CPU / GPU
         gradient_interval (int, optional): perform a gradient update every n batches.
             This creates an equivalent batch size of ``batch_size * gradient_interval`` for optimization.
+        clipping_gradient (bool, optional): Toggle to clip the gradient
+        clip_max_norm (float, optional): max norm parameter in gradient clipper
         num_worker (int, optional): number of CPU workers per GPU
         logger (str or core.LoggerBase, optional): logger type or logger instance.
             Available types are ``logging`` and ``wandb``.
@@ -67,6 +69,8 @@ class Engine(core.Configurable):
         scheduler=None,
         batch_size=1,
         gradient_interval=1,
+        clipping_gradient=False,
+        clip_max_norm=1,
         num_worker=0,
         logger="logging",
         log_interval=100,
@@ -82,6 +86,8 @@ class Engine(core.Configurable):
         self.num_worker = num_worker
         self.gpus = None
         self.gpus_per_node = 0
+        self.clipping_gradient = clipping_gradient
+        self.clip_max_norm = clip_max_norm
 
         try:
             gpus_per_node = int(
@@ -221,9 +227,11 @@ class Engine(core.Configurable):
                         "Loss doesn't require grad. Did you define any loss in the task?"
                     )
                 loss = loss / gradient_interval
+                
                 loss.backward()
                 metrics.append(metric)
-
+                if self.clipping_gradient:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=self.clip_max_norm)
                 if batch_id - start_id + 1 == gradient_interval:
                     self.optimizer.step()
                     self.optimizer.zero_grad()
@@ -385,6 +393,8 @@ class EngineCV(core.Configurable):
         n_folds=5,
         batch_size=36,
         gradient_interval=1,
+        clipping_gradient=False,
+        clip_max_norm=1,
         num_worker=0,
         logger="logging",
         log_interval=100,
@@ -403,6 +413,8 @@ class EngineCV(core.Configurable):
         self.gpus = None
         self.gpus_per_node = 0
         self.best_model = None
+        self.clipping_gradient = clipping_gradient
+        self.clip_max_norm = clip_max_norm
 
         try:
             gpus_per_node = int(
@@ -555,6 +567,9 @@ class EngineCV(core.Configurable):
                 loss = loss / gradient_interval
                 loss.backward()
                 metrics.append(metric)
+    
+                if self.clipping_gradient:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=self.clip_max_norm)
 
                 if batch_id - start_id + 1 == gradient_interval:
                     self.optimizer.step()
