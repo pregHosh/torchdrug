@@ -58,6 +58,7 @@ class Engine(core.Configurable):
         logger (str or core.LoggerBase, optional): logger type or logger instance.
             Available types are ``logging`` and ``wandb``.
         log_interval (int, optional): log every n gradient updates
+        debug (bool, optional): Toggle debug mode
     """
 
     def __init__(
@@ -76,6 +77,7 @@ class Engine(core.Configurable):
         num_worker=0,
         logger="logging",
         log_interval=100,
+        debug=True
     ):
         try:
             self.rank = int(os.environ["SLURM_PROCID"])
@@ -91,6 +93,7 @@ class Engine(core.Configurable):
         self.clipping_gradient_norm = clipping_gradient_norm
         self.clipping_gradient_value = clipping_gradient_value  
         self.clip_value = clip_value
+        self.debug = debug
 
         try:
             gpus_per_node = int(
@@ -229,12 +232,25 @@ class Engine(core.Configurable):
                         "Loss doesn't require grad. Did you define any loss in the task?"
                     )
                 loss = loss / gradient_interval
-                
+                if self.debug:
+                    module.logger.info(f"Loss: {loss}")
+                    
                 loss.backward()
 
-                grad_norms = [param.grad.norm().item() for _, param in model.named_parameters() if param.grad is not None]
+                grad_norms = []
+                for name, param in model.named_parameters():
+                    if param.grad is not None:
+                        grad_norms.append(param.grad.norm().item())
+                        if self.debug:
+                            module.logger.info(f"Gradient - {name}: {param.grad.norm().item()}")
+                            if torch.isnan(param.grad).any():
+                                print(f"Faulty Grad: {param.grad}")
+                                print(f"Params whose grad is NaN: {param[torch.isnan(param.grad)]}")
+                            
+        
                 if torch.isnan(torch.tensor(grad_norms)).any():
                     module.logger.info("NaN gradients detected in batch {}. Skipping this batch.".format(batch_id))
+                    self.optimizer.zero_grad()
                     continue
                 
                 metrics.append(metric)
