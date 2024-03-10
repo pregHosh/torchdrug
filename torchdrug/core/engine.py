@@ -51,8 +51,9 @@ class Engine(core.Configurable):
         batch_size (int, optional): batch size of a single CPU / GPU
         gradient_interval (int, optional): perform a gradient update every n batches.
             This creates an equivalent batch size of ``batch_size * gradient_interval`` for optimization.
-        clipping_gradient (bool, optional): Toggle to clip the gradient
-        clip_max_norm (float, optional): max norm parameter in gradient clipper
+        clipping_gradient_norm (bool, optional): Toggle to clip the gradient by norm
+        clipping_gradient_value (bool, optional): Toggle to clip the gradient by value
+        clip_value (float, optional): clip value (value of norm)
         num_worker (int, optional): number of CPU workers per GPU
         logger (str or core.LoggerBase, optional): logger type or logger instance.
             Available types are ``logging`` and ``wandb``.
@@ -69,8 +70,9 @@ class Engine(core.Configurable):
         scheduler=None,
         batch_size=1,
         gradient_interval=1,
-        clipping_gradient=False,
-        clip_max_norm=1,
+        clipping_gradient_norm=False,
+        clipping_gradient_value=False,
+        clip_value=1,
         num_worker=0,
         logger="logging",
         log_interval=100,
@@ -86,8 +88,9 @@ class Engine(core.Configurable):
         self.num_worker = num_worker
         self.gpus = None
         self.gpus_per_node = 0
-        self.clipping_gradient = clipping_gradient
-        self.clip_max_norm = clip_max_norm
+        self.clipping_gradient_norm = clipping_gradient_norm
+        self.clipping_gradient_value = clipping_gradient_value  
+        self.clip_value = clip_value
 
         try:
             gpus_per_node = int(
@@ -113,7 +116,6 @@ class Engine(core.Configurable):
             self.device = torch.device("cpu")
         else:
             assert gpus_per_node == torch.cuda.device_count()
-            #print(f"gpu_per_node: {gpus_per_node}")
             if len(self.gpus) != self.world_size:
                 error_msg = "World size is %d but found %d GPUs in the argument"
                 raise ValueError(error_msg % (self.world_size, len(self.gpus)))
@@ -229,9 +231,19 @@ class Engine(core.Configurable):
                 loss = loss / gradient_interval
                 
                 loss.backward()
+
+                grad_norms = [param.grad.norm().item() for _, param in model.named_parameters() if param.grad is not None]
+                if torch.isnan(torch.tensor(grad_norms)).any():
+                    module.logger.info("NaN gradients detected in batch {}. Skipping this batch.".format(batch_id))
+                    continue
+                
                 metrics.append(metric)
-                if self.clipping_gradient:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=self.clip_max_norm)
+                
+                if self.clipping_gradient_norm:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=self.clip_value, foreach=True)
+                if self.clipping_gradient_value:
+                    torch.nn.utils.clip_grad_value_(model.parameters(), max_norm=self.clip_value, foreach=True)
+                
                 if batch_id - start_id + 1 == gradient_interval:
                     self.optimizer.step()
                     self.optimizer.zero_grad()
@@ -440,7 +452,6 @@ class EngineCV(core.Configurable):
             self.device = torch.device("cpu")
         else:
             assert gpus_per_node == torch.cuda.device_count()
-            #print(f"gpu_per_node: {gpus_per_node}")
             if len(self.gpus) != self.world_size:
                 error_msg = "World size is %d but found %d GPUs in the argument"
                 raise ValueError(error_msg % (self.world_size, len(self.gpus)))
@@ -560,12 +571,22 @@ class EngineCV(core.Configurable):
                     batch = utils.cuda(batch, device=self.device)
 
                 loss, metric = model(batch)
+                
                 if not loss.requires_grad:
                     raise RuntimeError(
                         "Loss doesn't require grad. Did you define any loss in the task?"
                     )
                 loss = loss / gradient_interval
+                
+                module.logger.info(f"Loss: {loss}")
+                
                 loss.backward()
+
+                # Monitoring gradients
+                for name, param in model.named_parameters():
+                    if param.grad is not None:
+                        module.logger.info(f"Gradient - {name}: {param.grad.norm().item()}")
+                    
                 metrics.append(metric)
     
                 if self.clipping_gradient:
