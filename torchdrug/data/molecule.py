@@ -43,7 +43,8 @@ class Molecule(Graph):
     """
 
     bond2id = {"SINGLE": 0, "DOUBLE": 1, "TRIPLE": 2, "AROMATIC": 3}
-    atom2valence = {1: 1, 5: 3, 6: 4, 7: 3, 8: 2, 9: 1, 14: 4, 15: 5, 16: 6, 17: 1, 35: 1, 53: 7}
+    atom2valence = {1: 1, 5: 3, 6: 4, 7: 3, 8: 2, 9: 1, 14: 4, 15: 5, 16: 6, 17: 1, 35: 1, 53: 7,
+                    32:4, 33:3, 34:2, 50:4, 51:5, 52:6} # row 4 not sure about Valence
     bond2valence = [1, 2, 3, 1.5]
     id2bond = {v: k for k, v in bond2id.items()}
     empty_mol = Chem.MolFromSmiles("")
