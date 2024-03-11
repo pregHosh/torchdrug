@@ -91,7 +91,7 @@ class Engine(core.Configurable):
         self.gpus = None
         self.gpus_per_node = 0
         self.clipping_gradient_norm = clipping_gradient_norm
-        self.clipping_gradient_value = clipping_gradient_value  
+        self.clipping_gradient_value = clipping_gradient_value
         self.clip_value = clip_value
         self.debug = debug
 
@@ -150,7 +150,8 @@ class Engine(core.Configurable):
                 train_set, valid_set, test_set = result
             new_params = list(task.parameters())
             if len(new_params) != len(old_params):
-                optimizer.add_param_group({"params": new_params[len(old_params) :]})
+                optimizer.add_param_group(
+                    {"params": new_params[len(old_params):]})
         if self.world_size > 1:
             task = nn.SyncBatchNorm.convert_sync_batchnorm(task)
             buffers_to_ignore = []
@@ -219,10 +220,14 @@ class Engine(core.Configurable):
 
             metrics = []
             start_id = 0
-            # the last gradient update may contain less than gradient_interval batches
-            gradient_interval = min(batch_per_epoch - start_id, self.gradient_interval)
+            # the last gradient update may contain less than gradient_interval
+            # batches
+            gradient_interval = min(
+                batch_per_epoch - start_id,
+                self.gradient_interval)
 
-            for batch_id, batch in enumerate(islice(dataloader, batch_per_epoch)):
+            for batch_id, batch in enumerate(
+                    islice(dataloader, batch_per_epoch)):
                 if self.device.type == "cuda":
                     batch = utils.cuda(batch, device=self.device)
 
@@ -234,7 +239,7 @@ class Engine(core.Configurable):
                 loss = loss / gradient_interval
                 if self.debug:
                     module.logger.info(f"Loss: {loss}")
-                    
+
                 loss.backward()
 
                 grad_norms = []
@@ -242,22 +247,27 @@ class Engine(core.Configurable):
                     if param.grad is not None:
                         grad_norms.append(param.grad.norm().item())
                         if self.debug:
-                            module.logger.info(f"Gradient - {name}: {param.grad.norm().item()}")
+                            module.logger.info(
+                                f"Gradient - {name}: {param.grad.norm().item()}")
                             if torch.isnan(param.grad).any():
                                 print(f"Faulty Grad: {param.grad}")
-                                print(f"Params whose grad is NaN: {param[torch.isnan(param.grad)]}")
-                            
-                metrics.append(metric)        
+                                print(
+                                    f"Params whose grad is NaN: {param[torch.isnan(param.grad)]}")
+
+                metrics.append(metric)
                 if torch.isnan(torch.tensor(grad_norms)).any():
-                    module.logger.info("NaN gradients detected in batch {}. Skipping this batch.".format(batch_id))
+                    module.logger.info(
+                        "NaN gradients detected in batch {}. Skipping this batch.".format(batch_id))
                     self.optimizer.zero_grad()
                     continue
-                
+
                 if self.clipping_gradient_norm:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=self.clip_value, foreach=True)
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), max_norm=self.clip_value, foreach=False)
                 if self.clipping_gradient_value:
-                    torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=self.clip_value, foreach=True)
-                
+                    torch.nn.utils.clip_grad_value_(
+                        model.parameters(), clip_value=self.clip_value, foreach=False)
+
                 if batch_id - start_id + 1 == gradient_interval:
                     self.optimizer.step()
                     self.optimizer.zero_grad()
@@ -298,10 +308,13 @@ class Engine(core.Configurable):
             logger.warning(pretty.separator)
             logger.warning("Evaluate on %s" % split)
         test_set = getattr(self, "%s_set" % split)
-        sampler = torch_data.DistributedSampler(test_set, self.world_size, self.rank)
+        sampler = torch_data.DistributedSampler(
+            test_set, self.world_size, self.rank)
         dataloader = data.DataLoader(
-            test_set, self.batch_size, sampler=sampler, num_workers=self.num_worker
-        )
+            test_set,
+            self.batch_size,
+            sampler=sampler,
+            num_workers=self.num_worker)
         model = self.model
         model.split = split
 
@@ -390,7 +403,8 @@ class Engine(core.Configurable):
             if k != "class":
                 new_config[k] = v
         optimizer_config["params"] = new_config["task"].parameters()
-        new_config["optimizer"] = core.Configurable.load_config_dict(optimizer_config)
+        new_config["optimizer"] = core.Configurable.load_config_dict(
+            optimizer_config)
 
         return cls(**new_config)
 
@@ -407,6 +421,8 @@ def ema(ema_model, model, decay):
         model_v = msd[k].detach()
         ema_v.copy_(ema_v * decay + (1.0 - decay) * model_v)
 
+# TODO clip by value
+
 
 @R.register("core.EngineCV")
 class EngineCV(core.Configurable):
@@ -419,8 +435,9 @@ class EngineCV(core.Configurable):
         n_folds=5,
         batch_size=36,
         gradient_interval=1,
-        clipping_gradient=False,
-        clip_max_norm=1,
+        clipping_gradient_norm=False,
+        clipping_gradient_value=False,
+        clip_value=1,
         num_worker=0,
         logger="logging",
         log_interval=100,
@@ -439,8 +456,9 @@ class EngineCV(core.Configurable):
         self.gpus = None
         self.gpus_per_node = 0
         self.best_model = None
-        self.clipping_gradient = clipping_gradient
-        self.clip_max_norm = clip_max_norm
+        self.clipping_gradient_norm = clipping_gradient_norm
+        self.clipping_gradient_value = clipping_gradient_value
+        self.clip_value = clip_value
 
         try:
             gpus_per_node = int(
@@ -475,7 +493,8 @@ class EngineCV(core.Configurable):
             if self.rank == 0:
                 module.logger.info("Initializing distributed process group")
             backend = "gloo" if self.gpus is None else "nccl"
-            comm.init_process_group(backend, rank=self.rank, world_size=self.world_size)
+            comm.init_process_group(
+                backend, rank=self.rank, world_size=self.world_size)
 
         if hasattr(task, "preprocess"):
             if self.rank == 0:
@@ -488,7 +507,8 @@ class EngineCV(core.Configurable):
                 dataset = result
             new_params = list(task.parameters())
             if len(new_params) != len(old_params):
-                optimizer.add_param_group({"params": new_params[len(old_params) :]})
+                optimizer.add_param_group(
+                    {"params": new_params[len(old_params):]})
         if self.world_size > 1:
             task = nn.SyncBatchNorm.convert_sync_batchnorm(task)
             buffers_to_ignore = []
@@ -541,11 +561,17 @@ class EngineCV(core.Configurable):
             if callable(reset_parameters):
                 m.reset_parameters()
 
-        # Applies fn recursively to every submodule see: https://pytorch.org/docs/stable/generated/torch.nn.Module.html
+        # Applies fn recursively to every submodule see:
+        # https://pytorch.org/docs/stable/generated/torch.nn.Module.html
         self.model.apply(fn=weight_reset)
         self.meter.epoch_id = 0
 
-    def train(self, train_loader, train_sampler, num_epoch=1, batch_per_epoch=None):
+    def train(
+            self,
+            train_loader,
+            train_sampler,
+            num_epoch=1,
+            batch_per_epoch=None):
         """
         Train the model.
 
@@ -577,34 +603,48 @@ class EngineCV(core.Configurable):
 
             metrics = []
             start_id = 0
-            # the last gradient update may contain less than gradient_interval batches
-            gradient_interval = min(batch_per_epoch - start_id, self.gradient_interval)
+            # the last gradient update may contain less than gradient_interval
+            # batches
+            gradient_interval = min(
+                batch_per_epoch - start_id,
+                self.gradient_interval)
 
-            for batch_id, batch in enumerate(islice(train_loader, batch_per_epoch)):
+            for batch_id, batch in enumerate(
+                    islice(train_loader, batch_per_epoch)):
                 if self.device.type == "cuda":
                     batch = utils.cuda(batch, device=self.device)
 
                 loss, metric = model(batch)
-                
+
                 if not loss.requires_grad:
                     raise RuntimeError(
                         "Loss doesn't require grad. Did you define any loss in the task?"
                     )
                 loss = loss / gradient_interval
-                
+
                 module.logger.info(f"Loss: {loss}")
-                
+
                 loss.backward()
 
-                # Monitoring gradients
-                for name, param in model.named_parameters():
+                grad_norms = []
+                for _, param in model.named_parameters():
                     if param.grad is not None:
-                        module.logger.info(f"Gradient - {name}: {param.grad.norm().item()}")
-                    
+                        grad_norms.append(param.grad.norm().item())
+
                 metrics.append(metric)
-    
-                if self.clipping_gradient:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=self.clip_max_norm)
+
+                if torch.isnan(torch.tensor(grad_norms)).any():
+                    module.logger.info(
+                        "NaN gradients detected in batch {}. Skipping this batch.".format(batch_id))
+                    self.optimizer.zero_grad()
+                    continue
+
+                if self.clipping_gradient_norm:
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), max_norm=self.clip_value, foreach=False)
+                if self.clipping_gradient_value:
+                    torch.nn.utils.clip_grad_value_(
+                        model.parameters(), clip_value=self.clip_value, foreach=False)
 
                 if batch_id - start_id + 1 == gradient_interval:
                     self.optimizer.step()
@@ -665,149 +705,148 @@ class EngineCV(core.Configurable):
         return metric, pred, target
 
     def one_train_val_loop(
-            self,
+        self,
+        train_dataset,
+        val_dataset,
+        num_epoch: int = 10,
+        val_interval: int = 3,
+        early_stop: int = 5,
+        weight_target: Optional[Union[List[float], torch.Tensor]] = None,
+        ema_decay: float = 0.99,
+    ):
+        """
+        Perform one training-validation loop.
+
+        Args:
+            train_dataset: The training dataset.
+            val_dataset: The validation dataset.
+            num_epoch (int): The total number of epochs to train.
+            val_interval (int): The interval at which to perform validation.
+            early_stop (int): The number of consecutive validations without improvement to trigger early stopping.
+            weight_target (Optional[Union[List[float], torch.Tensor]]): The weight for each target in the validation loss calculation.
+            ema_decay (float): The exponential moving average decay factor.
+
+        Returns:
+            Tuple: A tuple containing the best model, best predictions, target values, and best validation loss.
+        """
+        train_sampler = torch_data.DistributedSampler(
+            train_dataset, self.world_size, self.rank
+        )
+        train_loader = data.DataLoader(
             train_dataset,
+            self.batch_size,
+            sampler=train_sampler,
+            num_workers=self.num_worker,
+        )
+
+        val_sampler = torch_data.DistributedSampler(
+            val_dataset, self.world_size, self.rank
+        )
+        val_loader = data.DataLoader(
             val_dataset,
-            num_epoch: int = 10,
-            val_interval: int = 3,
-            early_stop: int = 5,
-            weight_target: Optional[Union[List[float], torch.Tensor]] = None,
-            ema_decay: float = 0.99,
-        ):
-            """
-            Perform one training-validation loop.
+            self.batch_size,
+            sampler=val_sampler,
+            num_workers=self.num_worker,
+        )
+        assert num_epoch > val_interval
+        "Number of epochs must be greater than validation interval"
+        n_loop = num_epoch // val_interval
 
-            Args:
-                train_dataset: The training dataset.
-                val_dataset: The validation dataset.
-                num_epoch (int): The total number of epochs to train.
-                val_interval (int): The interval at which to perform validation.
-                early_stop (int): The number of consecutive validations without improvement to trigger early stopping.
-                weight_target (Optional[Union[List[float], torch.Tensor]]): The weight for each target in the validation loss calculation.
-                ema_decay (float): The exponential moving average decay factor.
+        best_val_loss = 1e9
 
-            Returns:
-                Tuple: A tuple containing the best model, best predictions, target values, and best validation loss.
-            """
-            train_sampler = torch_data.DistributedSampler(
-                train_dataset, self.world_size, self.rank
-            )
-            train_loader = data.DataLoader(
-                train_dataset,
-                self.batch_size,
-                sampler=train_sampler,
-                num_workers=self.num_worker,
-            )
+        no_improvement = 0
 
-            val_sampler = torch_data.DistributedSampler(
-                val_dataset, self.world_size, self.rank
-            )
-            val_loader = data.DataLoader(
-                val_dataset,
-                self.batch_size,
-                sampler=val_sampler,
-                num_workers=self.num_worker,
-            )
-            assert num_epoch > val_interval
-            "Number of epochs must be greater than validation interval"
-            n_loop = num_epoch // val_interval
+        ema_model = copy.deepcopy(self.model)
+        for p in ema_model.parameters():
+            p.requires_grad_(False)
 
-            best_val_loss = 1e9
+        best_model = copy.deepcopy(ema_model)
+        best_pred = None
+        for loop in range(n_loop):
+            self.train(train_loader, train_sampler, num_epoch=val_interval)
+            ema(ema_model, self.model, ema_decay)
+            val_loss, pred, target = self.evaluate(val_loader, log=True)
+            if weight_target is None:
+                val_loss_list = torch.tensor(
+                    list(val_loss.values()), dtype=torch.float32
+                )
+                val_loss_mean = torch.mean(val_loss_list)
+            else:
+                val_loss_list = torch.tensor(
+                    list(val_loss.values()), dtype=torch.float32
+                )
+                val_loss_mean = torch.sum(
+                    val_loss_list * weight_target) / torch.sum(weight_target)
 
-            no_improvement = 0
+            if self.rank == 0:
+                module.logging.warning(
+                    f"Epoch [{(loop + 1) * val_interval}/{num_epoch}], Val Loss: {val_loss_mean:.4f}"
+                )
+            if val_loss_mean > best_val_loss:
+                no_improvement += 1
+                if no_improvement == early_stop:
+                    module.logger.info("Early stopping due to no improvement.")
+                    break
+            else:
+                no_improvement = 0
+                best_val_loss = val_loss_mean
+                best_pred = pred
+                best_model = copy.deepcopy(ema_model)
 
-            ema_model = copy.deepcopy(self.model)
-            for p in ema_model.parameters():
-                p.requires_grad_(False)
-
-            best_model = copy.deepcopy(ema_model)
-            best_pred = None
-            for loop in range(n_loop):
-                self.train(train_loader, train_sampler, num_epoch=val_interval)
-                ema(ema_model, self.model, ema_decay)
-                val_loss, pred, target = self.evaluate(val_loader, log=True)
-                if weight_target is None:
-                    val_loss_list = torch.tensor(
-                        list(val_loss.values()), dtype=torch.float32
-                    )
-                    val_loss_mean = torch.mean(val_loss_list)
-                else:
-                    val_loss_list = torch.tensor(
-                        list(val_loss.values()), dtype=torch.float32
-                    )
-                    val_loss_mean = torch.sum(val_loss_list * weight_target) / torch.sum(
-                        weight_target
-                    )
-                
-                if self.rank == 0:
-                    module.logging.warning(
-                        f"Epoch [{(loop + 1) * val_interval}/{num_epoch}], Val Loss: {val_loss_mean:.4f}"
-                    )
-                if val_loss_mean > best_val_loss:
-                    no_improvement += 1
-                    if no_improvement == early_stop:
-                        module.logger.info("Early stopping due to no improvement.")
-                        break
-                else:
-                    no_improvement = 0
-                    best_val_loss = val_loss_mean
-                    best_pred = pred
-                    best_model = copy.deepcopy(ema_model)
-
-            return best_model, best_pred, target, best_val_loss
+        return best_model, best_pred, target, best_val_loss
 
     def k_fold_train_val(
-            self, num_epoch=1, val_interval=3, early_stop=15, ema_decay=0.99
-        ):
-            """
-            Perform k-fold cross-validation training and validation.
+        self, num_epoch=1, val_interval=3, early_stop=15, ema_decay=0.99
+    ):
+        """
+        Perform k-fold cross-validation training and validation.
 
-            Args:
-                num_epoch (int): Number of epochs to train the model for each fold. Default is 1.
-                val_interval (int): Interval between validation steps. Default is 3.
-                early_stop (int): Number of epochs to wait for improvement in validation loss before early stopping. Default is 15.
-                ema_decay (float): Decay rate for exponential moving average of model weights. Default is 0.99.
+        Args:
+            num_epoch (int): Number of epochs to train the model for each fold. Default is 1.
+            val_interval (int): Interval between validation steps. Default is 3.
+            early_stop (int): Number of epochs to wait for improvement in validation loss before early stopping. Default is 15.
+            ema_decay (float): Decay rate for exponential moving average of model weights. Default is 0.99.
 
-            Returns:
-                tuple: A tuple containing the best model, predicted labels, and true labels.
-            """
-            val_losses = torch.zeros(self.n_folds)
-            y_preds = torch.tensor([], device=self.device)
-            y_trues = torch.tensor([], device=self.device)
-            models = []
-            for fold in range(self.n_folds):
-                module.logger.info(f"Fold: {fold}\n")
-                torch.manual_seed(0)
+        Returns:
+            tuple: A tuple containing the best model, predicted labels, and true labels.
+        """
+        val_losses = torch.zeros(self.n_folds)
+        y_preds = torch.tensor([], device=self.device)
+        y_trues = torch.tensor([], device=self.device)
+        models = []
+        for fold in range(self.n_folds):
+            module.logger.info(f"Fold: {fold}\n")
+            torch.manual_seed(0)
 
-                val_dataset = self.dataset_splits[fold]
-                train_dataset = torch.utils.data.ConcatDataset(
-                    self.dataset_splits[:fold] + self.dataset_splits[fold + 1 :]
+            val_dataset = self.dataset_splits[fold]
+            train_dataset = torch.utils.data.ConcatDataset(
+                self.dataset_splits[:fold] + self.dataset_splits[fold + 1:]
+            )
+            best_model_i, best_pred, target, val_loss = self.one_train_val_loop(
+                train_dataset=train_dataset,
+                val_dataset=val_dataset,
+                num_epoch=num_epoch,
+                val_interval=val_interval,
+                early_stop=early_stop,
+                weight_target=None,
+                ema_decay=ema_decay,
+            )
+            models.append(best_model_i)
+
+            y_preds = torch.cat((y_preds, best_pred.clone().detach()))
+            y_trues = torch.cat((y_trues, target.clone().detach()))
+            val_losses[fold] = val_loss
+            if self.rank == 0:
+                module.logging.warning(
+                    f"\nBest val loss of {fold} fold: {val_loss:.4f}\n"
                 )
-                best_model_i, best_pred, target, val_loss = self.one_train_val_loop(
-                    train_dataset=train_dataset,
-                    val_dataset=val_dataset,
-                    num_epoch=num_epoch,
-                    val_interval=val_interval,
-                    early_stop=early_stop,
-                    weight_target=None,
-                    ema_decay=ema_decay,
-                )
-                models.append(best_model_i)
-                        
-                y_preds = torch.cat((y_preds, best_pred.clone().detach()))
-                y_trues = torch.cat((y_trues, target.clone().detach()))
-                val_losses[fold] = val_loss
-                if self.rank == 0:
-                    module.logging.warning(
-                        f"\nBest val loss of {fold} fold: {val_loss:.4f}\n"
-                    )
 
-                self.reset_model_and_epoch()
-                
-            best_idx = torch.argmin(val_losses).item()
-            self.best_model = models[best_idx]
-            
-            return models[best_idx], y_preds, y_trues
+            self.reset_model_and_epoch()
+
+        best_idx = torch.argmin(val_losses).item()
+        self.best_model = models[best_idx]
+
+        return models[best_idx], y_preds, y_trues
 
     def load(self, checkpoint, load_optimizer=True, strict=True):
         """
@@ -872,7 +911,8 @@ class EngineCV(core.Configurable):
             if k != "class":
                 new_config[k] = v
         optimizer_config["params"] = new_config["task"].parameters()
-        new_config["optimizer"] = core.Configurable.load_config_dict(optimizer_config)
+        new_config["optimizer"] = core.Configurable.load_config_dict(
+            optimizer_config)
 
         return cls(**new_config)
 
