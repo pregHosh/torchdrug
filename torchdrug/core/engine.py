@@ -247,18 +247,16 @@ class Engine(core.Configurable):
                                 print(f"Faulty Grad: {param.grad}")
                                 print(f"Params whose grad is NaN: {param[torch.isnan(param.grad)]}")
                             
-        
+                metrics.append(metric)        
                 if torch.isnan(torch.tensor(grad_norms)).any():
                     module.logger.info("NaN gradients detected in batch {}. Skipping this batch.".format(batch_id))
                     self.optimizer.zero_grad()
                     continue
                 
-                metrics.append(metric)
-                
                 if self.clipping_gradient_norm:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=self.clip_value, foreach=True)
                 if self.clipping_gradient_value:
-                    torch.nn.utils.clip_grad_value_(model.parameters(), max_norm=self.clip_value, foreach=True)
+                    torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=self.clip_value, foreach=True)
                 
                 if batch_id - start_id + 1 == gradient_interval:
                     self.optimizer.step()
