@@ -7,11 +7,14 @@ from torchdrug.core import Registry as R
 
 
 # orderd by perodic table
-atom_vocab = ["H", "B", "C", "N", "O", "F", "Mg", "Si", "P", "S", "Cl", "Cu", "Zn", "Se", "Br", "Sn", "I"]
+atom_vocab = ["H", "B", "C", "N", "O", "F", 
+              "Mg", "Si", "P", "S", "Cl", 
+              "Cu", "Zn", "Ge", "As", "Se", "Br", 
+              "Sn", "I"]
 atom_vocab = {a: i for i, a in enumerate(atom_vocab)}
-degree_vocab = range(7)
+degree_vocab = range(8)
 num_hs_vocab = range(7)
-formal_charge_vocab = range(-5, 6)
+formal_charge_vocab = range(-6, 9)
 chiral_tag_vocab = range(4)
 total_valence_vocab = range(8)
 num_radical_vocab = range(8)
