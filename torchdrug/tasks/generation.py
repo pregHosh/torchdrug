@@ -97,7 +97,7 @@ class AutoregressiveGeneration(tasks.Task, core.Configurable):
 
         Compute ``max_edge_unroll`` and ``max_node`` on the training set if not provided.
         """
-        
+
         # read input atom types first if provided
         if atom_types:
             self.remap_atom_type = transforms.RemapAtomType(atom_types)
@@ -110,7 +110,7 @@ class AutoregressiveGeneration(tasks.Task, core.Configurable):
                     self.remap_atom_type,
                     transforms.RandomBFSOrder(),
                 ]
-            )     
+            )
 
             if self.max_edge_unroll is None or self.max_node is None:
                 self.max_edge_unroll = 0
@@ -138,11 +138,9 @@ class AutoregressiveGeneration(tasks.Task, core.Configurable):
 
             self.register_buffer("node_baseline", torch.zeros(self.max_node + 1))
             self.register_buffer("edge_baseline", torch.zeros(self.max_node + 1))
-        
+
         self.register_buffer("id2atom", self.remap_atom_type.id2atom)
         self.register_buffer("atom2id", self.remap_atom_type.atom2id)
-
-
 
     def forward(self, batch):
         """"""
@@ -227,17 +225,19 @@ class AutoregressiveGeneration(tasks.Task, core.Configurable):
             else:
                 try:
                     smiles_generated = graph.to_smiles()
-                    # NOTE assume tasks are functions/classes, reading multiple smiles to return their scores
+                    # NOTE assume tasks are functions/classes,
+                    # #reading multiple smiles to return their scores
                     scores = task(smiles_generated)
                     metric[task.__name__] = scores.mean()
                     metric[f"{task.__name__} (max)"] = scores.max()
-                    self.update_best_result(graph, scores, task.__name__)  # ********
+                    self.update_best_result(graph, scores, task.__name__)
                     reward += (scores / self.reward_temperature).exp()
 
-                    print(f"{task.__name__} (max) = %s" % scores.max().item())
-                    print(self.best_results[task.__name__])
-                except Exception:
-                    raise ValueError("Unknown task `%s`" % task)
+                    if scores.max().item() > 0.90:
+                        print(f"{task.__name__} (max) = {scores.max().item()}")
+                        print(self.best_results[task.__name__])
+                except Exception as e:
+                    print(f"Error in task: {task.__name__} due to {e}")
 
         # these graph-level features will broadcast to all masked graphs
         with graph.graph():
@@ -868,7 +868,7 @@ class GCPNGeneration(tasks.Task, core.Configurable):
         Compute ``max_edge_unroll`` and ``max_node`` on the training set if not provided.
         """
         # read input atom types first if provided
- 
+
         if self.remap_atom_type is None:
             remap_atom_type = transforms.RemapAtomType(train_set.atom_types)
         if train_set:
@@ -878,8 +878,7 @@ class GCPNGeneration(tasks.Task, core.Configurable):
                     remap_atom_type,
                     transforms.RandomBFSOrder(),
                 ]
-            )     
-
+            )
 
         if self.max_edge_unroll is None or self.max_node is None:
             self.max_edge_unroll = 0
