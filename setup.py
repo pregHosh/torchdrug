@@ -1,6 +1,5 @@
 import setuptools
 
-
 with open("README.md", "r") as fin:
     long_description = fin.read()
 
@@ -13,7 +12,7 @@ if __name__ == "__main__":
         long_description_content_type="text/markdown",
         url="https://torchdrug.ai/",
         author="TorchDrug Team",
-        version="1.0.0",
+        version="1.0.1",
         license="Apache-2.0",
         keywords=["deep-learning", "pytorch", "drug-discovery"],
         packages=setuptools.find_packages(),
@@ -43,12 +42,12 @@ if __name__ == "__main__":
         python_requires=">=3.7,<3.11",
         classifiers=[
             "Development Status :: 4 - Beta",
-            'Intended Audience :: Developers',
-            'Intended Audience :: Science/Research',
+            "Intended Audience :: Developers",
+            "Intended Audience :: Science/Research",
             "License :: OSI Approved :: Apache Software License",
-            'Topic :: Scientific/Engineering :: Mathematics',
-            'Topic :: Scientific/Engineering :: Artificial Intelligence',
-            'Topic :: Software Development :: Libraries',
+            "Topic :: Scientific/Engineering :: Mathematics",
+            "Topic :: Scientific/Engineering :: Artificial Intelligence",
+            "Topic :: Software Development :: Libraries",
             "Programming Language :: Python :: 3",
         ],
     )

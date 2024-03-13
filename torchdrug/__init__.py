@@ -1,8 +1,8 @@
+import logging
+import sys
+
 from . import patch
 from .data.constant import *
-
-import sys
-import logging
 
 logger = logging.getLogger("")
 logger.setLevel(logging.INFO)
@@ -12,4 +12,4 @@ handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(format)
 logger.addHandler(handler)
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
