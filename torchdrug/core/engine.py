@@ -77,7 +77,7 @@ class Engine(core.Configurable):
         num_worker=0,
         logger="logging",
         log_interval=100,
-        debug=True
+        debug=False,
     ):
         try:
             self.rank = int(os.environ["SLURM_PROCID"])
@@ -150,8 +150,7 @@ class Engine(core.Configurable):
                 train_set, valid_set, test_set = result
             new_params = list(task.parameters())
             if len(new_params) != len(old_params):
-                optimizer.add_param_group(
-                    {"params": new_params[len(old_params):]})
+                optimizer.add_param_group({"params": new_params[len(old_params) :]})
         if self.world_size > 1:
             task = nn.SyncBatchNorm.convert_sync_batchnorm(task)
             buffers_to_ignore = []
@@ -222,12 +221,9 @@ class Engine(core.Configurable):
             start_id = 0
             # the last gradient update may contain less than gradient_interval
             # batches
-            gradient_interval = min(
-                batch_per_epoch - start_id,
-                self.gradient_interval)
+            gradient_interval = min(batch_per_epoch - start_id, self.gradient_interval)
 
-            for batch_id, batch in enumerate(
-                    islice(dataloader, batch_per_epoch)):
+            for batch_id, batch in enumerate(islice(dataloader, batch_per_epoch)):
                 if self.device.type == "cuda":
                     batch = utils.cuda(batch, device=self.device)
 
@@ -248,25 +244,32 @@ class Engine(core.Configurable):
                         grad_norms.append(param.grad.norm().item())
                         if self.debug:
                             module.logger.info(
-                                f"Gradient - {name}: {param.grad.norm().item()}")
+                                f"Gradient - {name}: {param.grad.norm().item()}"
+                            )
                             if torch.isnan(param.grad).any():
                                 print(f"Faulty Grad: {param.grad}")
                                 print(
-                                    f"Params whose grad is NaN: {param[torch.isnan(param.grad)]}")
+                                    f"Params whose grad is NaN: {param[torch.isnan(param.grad)]}"
+                                )
 
                 metrics.append(metric)
                 if torch.isnan(torch.tensor(grad_norms)).any():
                     module.logger.info(
-                        "NaN gradients detected in batch {}. Skipping this batch.".format(batch_id))
+                        "NaN gradients detected in batch {}. Skipping this batch.".format(
+                            batch_id
+                        )
+                    )
                     self.optimizer.zero_grad()
                     continue
 
                 if self.clipping_gradient_norm:
                     torch.nn.utils.clip_grad_norm_(
-                        model.parameters(), max_norm=self.clip_value, foreach=False)
+                        model.parameters(), max_norm=self.clip_value, foreach=False
+                    )
                 if self.clipping_gradient_value:
                     torch.nn.utils.clip_grad_value_(
-                        model.parameters(), clip_value=self.clip_value, foreach=False)
+                        model.parameters(), clip_value=self.clip_value, foreach=False
+                    )
 
                 if batch_id - start_id + 1 == gradient_interval:
                     self.optimizer.step()
@@ -308,13 +311,10 @@ class Engine(core.Configurable):
             logger.warning(pretty.separator)
             logger.warning("Evaluate on %s" % split)
         test_set = getattr(self, "%s_set" % split)
-        sampler = torch_data.DistributedSampler(
-            test_set, self.world_size, self.rank)
+        sampler = torch_data.DistributedSampler(test_set, self.world_size, self.rank)
         dataloader = data.DataLoader(
-            test_set,
-            self.batch_size,
-            sampler=sampler,
-            num_workers=self.num_worker)
+            test_set, self.batch_size, sampler=sampler, num_workers=self.num_worker
+        )
         model = self.model
         model.split = split
 
@@ -403,8 +403,7 @@ class Engine(core.Configurable):
             if k != "class":
                 new_config[k] = v
         optimizer_config["params"] = new_config["task"].parameters()
-        new_config["optimizer"] = core.Configurable.load_config_dict(
-            optimizer_config)
+        new_config["optimizer"] = core.Configurable.load_config_dict(optimizer_config)
 
         return cls(**new_config)
 
@@ -420,6 +419,7 @@ def ema(ema_model, model, decay):
     for k, ema_v in ema_model.state_dict().items():
         model_v = msd[k].detach()
         ema_v.copy_(ema_v * decay + (1.0 - decay) * model_v)
+
 
 # TODO clip by value
 
@@ -493,8 +493,7 @@ class EngineCV(core.Configurable):
             if self.rank == 0:
                 module.logger.info("Initializing distributed process group")
             backend = "gloo" if self.gpus is None else "nccl"
-            comm.init_process_group(
-                backend, rank=self.rank, world_size=self.world_size)
+            comm.init_process_group(backend, rank=self.rank, world_size=self.world_size)
 
         if hasattr(task, "preprocess"):
             if self.rank == 0:
@@ -507,8 +506,7 @@ class EngineCV(core.Configurable):
                 dataset = result
             new_params = list(task.parameters())
             if len(new_params) != len(old_params):
-                optimizer.add_param_group(
-                    {"params": new_params[len(old_params):]})
+                optimizer.add_param_group({"params": new_params[len(old_params) :]})
         if self.world_size > 1:
             task = nn.SyncBatchNorm.convert_sync_batchnorm(task)
             buffers_to_ignore = []
@@ -566,12 +564,7 @@ class EngineCV(core.Configurable):
         self.model.apply(fn=weight_reset)
         self.meter.epoch_id = 0
 
-    def train(
-            self,
-            train_loader,
-            train_sampler,
-            num_epoch=1,
-            batch_per_epoch=None):
+    def train(self, train_loader, train_sampler, num_epoch=1, batch_per_epoch=None):
         """
         Train the model.
 
@@ -605,12 +598,9 @@ class EngineCV(core.Configurable):
             start_id = 0
             # the last gradient update may contain less than gradient_interval
             # batches
-            gradient_interval = min(
-                batch_per_epoch - start_id,
-                self.gradient_interval)
+            gradient_interval = min(batch_per_epoch - start_id, self.gradient_interval)
 
-            for batch_id, batch in enumerate(
-                    islice(train_loader, batch_per_epoch)):
+            for batch_id, batch in enumerate(islice(train_loader, batch_per_epoch)):
                 if self.device.type == "cuda":
                     batch = utils.cuda(batch, device=self.device)
 
@@ -635,16 +625,21 @@ class EngineCV(core.Configurable):
 
                 if torch.isnan(torch.tensor(grad_norms)).any():
                     module.logger.info(
-                        "NaN gradients detected in batch {}. Skipping this batch.".format(batch_id))
+                        "NaN gradients detected in batch {}. Skipping this batch.".format(
+                            batch_id
+                        )
+                    )
                     self.optimizer.zero_grad()
                     continue
 
                 if self.clipping_gradient_norm:
                     torch.nn.utils.clip_grad_norm_(
-                        model.parameters(), max_norm=self.clip_value, foreach=False)
+                        model.parameters(), max_norm=self.clip_value, foreach=False
+                    )
                 if self.clipping_gradient_value:
                     torch.nn.utils.clip_grad_value_(
-                        model.parameters(), clip_value=self.clip_value, foreach=False)
+                        model.parameters(), clip_value=self.clip_value, foreach=False
+                    )
 
                 if batch_id - start_id + 1 == gradient_interval:
                     self.optimizer.step()
@@ -775,8 +770,9 @@ class EngineCV(core.Configurable):
                 val_loss_list = torch.tensor(
                     list(val_loss.values()), dtype=torch.float32
                 )
-                val_loss_mean = torch.sum(
-                    val_loss_list * weight_target) / torch.sum(weight_target)
+                val_loss_mean = torch.sum(val_loss_list * weight_target) / torch.sum(
+                    weight_target
+                )
 
             if self.rank == 0:
                 module.logging.warning(
@@ -820,7 +816,7 @@ class EngineCV(core.Configurable):
 
             val_dataset = self.dataset_splits[fold]
             train_dataset = torch.utils.data.ConcatDataset(
-                self.dataset_splits[:fold] + self.dataset_splits[fold + 1:]
+                self.dataset_splits[:fold] + self.dataset_splits[fold + 1 :]
             )
             best_model_i, best_pred, target, val_loss = self.one_train_val_loop(
                 train_dataset=train_dataset,
@@ -911,8 +907,7 @@ class EngineCV(core.Configurable):
             if k != "class":
                 new_config[k] = v
         optimizer_config["params"] = new_config["task"].parameters()
-        new_config["optimizer"] = core.Configurable.load_config_dict(
-            optimizer_config)
+        new_config["optimizer"] = core.Configurable.load_config_dict(optimizer_config)
 
         return cls(**new_config)
 
