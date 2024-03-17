@@ -213,7 +213,11 @@ class PropertyPrediction(tasks.Task, core.Configurable):
 
         return all_loss, metric
 
-    def predict(self, batch, all_loss=None, metric=None):
+    def predict(self, batch, all_loss=None, metric=None, evaluate=False):
+
+        if evaluate:
+            self.model.eval()
+            self.mlp.eval()
         graph = batch["graph"]
         if self.graph_construction_model:
             graph = self.graph_construction_model(graph)
@@ -401,7 +405,10 @@ class MultipleBinaryClassification(tasks.Task, core.Configurable):
 
         return all_loss, metric
 
-    def predict(self, batch, all_loss=None, metric=None):
+    def predict(self, batch, all_loss=None, metric=None, evaluate=False):
+        if evaluate:
+            self.model.eval()
+            self.mlp.eval()
         graph = batch["graph"]
         if self.graph_construction_model:
             graph = self.graph_construction_model(graph)
@@ -509,7 +516,10 @@ class NodePropertyPrediction(tasks.Task, core.Configurable):
         hidden_dims = [model_output_dim] * (self.num_mlp_layer - 1)
         self.mlp = layers.MLP(model_output_dim, hidden_dims + [self.num_class])
 
-    def predict(self, batch, all_loss=None, metric=None):
+    def predict(self, batch, all_loss=None, metric=None, evaluate=False):
+        if evaluate:
+            self.model.eval()
+            self.mlp.eval()
         graph = batch["graph"]
         output = self.model(
             graph, graph.node_feature.float(), all_loss=all_loss, metric=metric
@@ -662,7 +672,10 @@ class InteractionPrediction(PropertyPrediction):
             hidden_dims + [sum(self.num_class)],
         )
 
-    def predict(self, batch, all_loss=None, metric=None):
+    def predict(self, batch, all_loss=None, metric=None, evaluate=False):
+        if evaluate:
+            self.model.eval()
+            self.mlp.eval()
         graph1 = batch["graph1"]
         output1 = self.model(
             graph1, graph1.node_feature.float(), all_loss=all_loss, metric=metric
@@ -721,10 +734,10 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
     to have idxs in the graph objects in the first place
     read any columns with "idxs"
     This class is also compatible with semi-supervised learning.
-    
+
     Assume there are columns in the dataset with "idx" in the name.
     Assume idx is 0-based.
-    
+
     Parameters:
         model (nn.Module): graph representation model
         task (str, list or dict, optional): training task(s).
@@ -787,14 +800,14 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
 
         self.mlp = None
         self.mlps = nn.ModuleList()
-        
+
         if std_mean:
             self.std = std_mean[0]
             self.mean = std_mean[1]
 
         if self.num_class:
             hidden_dims = [self.model.output_dim] * (self.num_mlp_layer - 1)
-    
+
             if self.idx_pos:
                 for i in range(len(self.task)):  # or len(idx_pos)
                     if len(self.idx_pos) == 1:
@@ -803,7 +816,7 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
                         nnode = len(self.idx_pos[i])
                     self.mlps.append(
                         layers.MLP(
-                            self.model.output_dim*nnode,
+                            self.model.output_dim * nnode,
                             hidden_dims + [1],
                             batch_norm=self.mlp_batch_norm,
                             dropout=self.mlp_dropout,
@@ -816,13 +829,13 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
                     batch_norm=self.mlp_batch_norm,
                     dropout=self.mlp_dropout,
                 )
-            
+
     def preprocess(self, train_set=None, valid_set=None, test_set=None):
         """
         Compute the mean and derivation for each task on the training set.
         """
         values = defaultdict(list)
-        
+
         if train_set:
             for sample in train_set:
                 if not sample.get("labeled", True):
@@ -866,7 +879,7 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
                     nnode = len(self.idx_pos[i])
                 self.mlps.append(
                     layers.MLP(
-                        self.model.output_dim*nnode,
+                        self.model.output_dim * nnode,
                         hidden_dims + [1],
                         batch_norm=self.mlp_batch_norm,
                         dropout=self.mlp_dropout,
@@ -958,7 +971,11 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
         return all_loss, metric
 
     # The basket here
-    def predict(self, batch, all_loss=None, metric=None):
+    def predict(self, batch, all_loss=None, metric=None, evaluate=False):
+
+        if evaluate:
+            self.model.eval()
+            self.mlp.eval()
         graph = batch["graph"]
 
         def get_adj_idxs(batch, n_atoms_csum):
@@ -978,25 +995,28 @@ class PropertyPrediction_local(tasks.Task, core.Configurable):
             n_atoms_csum = torch.cumsum(batch["graph"].num_atoms, dim=0)
         except AttributeError:
             n_atoms_csum = torch.tensor([0])
-            
-        idxs_adj = get_adj_idxs(batch, n_atoms_csum)  
+
+        idxs_adj = get_adj_idxs(batch, n_atoms_csum)
         if self.graph_construction_model:
             graph = self.graph_construction_model(graph)
         output = self.model(
             graph, graph.node_feature.float(), all_loss=all_loss, metric=metric
         )
-        node_feat = output["node_feature"]        
+        node_feat = output["node_feature"]
         if self.idx_pos:
             pred = []
             for i, idxs in enumerate(self.idx_pos):
                 if len(idxs) > 1:
                     loc_feats = [node_feat[idxs_adj[idx]] for idx in idxs]
-                    loc_feats = [feat.unsqueeze(0) if feat.dim() == 1 else feat for feat in loc_feats]      
+                    loc_feats = [
+                        feat.unsqueeze(0) if feat.dim() == 1 else feat
+                        for feat in loc_feats
+                    ]
                     loc_feats = torch.cat(loc_feats, dim=1)
                 else:
                     loc_feats = node_feat[idxs_adj[idxs[0]]]
                 pred.append(self.mlps[i](loc_feats))
-            
+
             pred = torch.cat(pred, dim=1)
         else:
             loc_feats = [node_feat[idx_list] for idx_list in idxs_adj]
