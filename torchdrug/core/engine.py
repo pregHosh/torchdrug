@@ -23,22 +23,6 @@ class Engine(core.Configurable):
     """
     General class that handles everything about training and test of a task.
 
-    This class can perform synchronous distributed parallel training over multiple CPUs or GPUs.
-    To invoke parallel training, launch with one of the following commands.
-
-    1. Single-node multi-process case.
-
-    .. code-block:: bash
-
-        python -m torch.distributed.launch --nproc_per_node={number_of_gpus} {your_script.py} {your_arguments...}
-
-    2. Multi-node multi-process case.
-
-    .. code-block:: bash
-
-        python -m torch.distributed.launch --nnodes={number_of_nodes} --node_rank={rank_of_this_node}
-        --nproc_per_node={number_of_gpus} {your_script.py} {your_arguments...}
-
     If :meth:`preprocess` is defined by the task, it will be applied to ``train_set``, ``valid_set`` and ``test_set``.
 
     Parameters:
@@ -58,6 +42,9 @@ class Engine(core.Configurable):
         logger (str or core.LoggerBase, optional): logger type or logger instance.
             Available types are ``logging`` and ``wandb``.
         log_interval (int, optional): log every n gradient updates
+        project_wandb (str, optional): project name for wandb
+        name_wandb (str, optional): name for wandb
+        dir_wandb (str, optional): directory for wandb
         debug (bool, optional): Toggle debug mode
     """
 
@@ -77,6 +64,9 @@ class Engine(core.Configurable):
         num_worker=0,
         logger="logging",
         log_interval=100,
+        project_wandb=None,
+        name_wandb=None,
+        dir_wandb=None,
         debug=False,
     ):
         try:
@@ -93,6 +83,11 @@ class Engine(core.Configurable):
         self.clipping_gradient_norm = clipping_gradient_norm
         self.clipping_gradient_value = clipping_gradient_value
         self.clip_value = clip_value
+
+        self.project_wandb = project_wandb
+        self.name_wandb = name_wandb
+        self.dir_wandb = dir_wandb
+
         self.debug = debug
 
         try:
@@ -168,11 +163,16 @@ class Engine(core.Configurable):
         self.optimizer = optimizer
         self.scheduler = scheduler
 
+        # TODO to have custom name and project/ store in output_dir
         if isinstance(logger, str):
             if logger == "logging":
                 logger = core.LoggingLogger()
             elif logger == "wandb":
-                logger = core.WandbLogger(project=task.__class__.__name__)
+                if self.project_wandb is None:
+                    self.project_wandb = task.__class__.__name__
+                logger = core.WandbLogger(
+                    project=self.project_wandb, name=self.name_wandb, dir=self.dir_wandb
+                )
             else:
                 raise ValueError("Unknown logger `%s`" % logger)
         self.meter = core.Meter(
@@ -426,6 +426,29 @@ def ema(ema_model, model, decay):
 
 @R.register("core.EngineCV")
 class EngineCV(core.Configurable):
+    """
+    General class that performs k-fold cross-validation training and validation of a task.
+
+    Parameters:
+        task (nn.Module): task
+        dataset (data.Dataset): full dataset
+        optimizer (optim.Optimizer): optimizer
+        scheduler (lr_scheduler._LRScheduler, optional): scheduler
+        batch_size (int, optional): batch size of a single CPU / GPU
+        gradient_interval (int, optional): perform a gradient update every n batches.
+            This creates an equivalent batch size of ``batch_size * gradient_interval`` for optimization.
+        clipping_gradient_norm (bool, optional): Toggle to clip the gradient by norm
+        clipping_gradient_value (bool, optional): Toggle to clip the gradient by value
+        clip_value (float, optional): clip value (value of norm)
+        num_worker (int, optional): number of CPU workers per GPU
+        logger (str or core.LoggerBase, optional): logger type or logger instance.
+            Available types are ``logging`` and ``wandb``.
+        log_interval (int, optional): log every n gradient updates
+        project_wandb (str, optional): project name for wandb
+        name_wandb (str, optional): name for wandb
+        dir_wandb (str, optional): directory for wandb
+    """
+
     def __init__(
         self,
         task,
@@ -441,6 +464,9 @@ class EngineCV(core.Configurable):
         num_worker=0,
         logger="logging",
         log_interval=100,
+        project_wandb=None,
+        name_wandb=None,
+        dir_wandb=None,
     ):
 
         try:
@@ -459,6 +485,9 @@ class EngineCV(core.Configurable):
         self.clipping_gradient_norm = clipping_gradient_norm
         self.clipping_gradient_value = clipping_gradient_value
         self.clip_value = clip_value
+        self.project_wandb = project_wandb
+        self.name_wandb = name_wandb
+        self.dir_wandb = dir_wandb
 
         try:
             gpus_per_node = int(
@@ -536,7 +565,11 @@ class EngineCV(core.Configurable):
             if logger == "logging":
                 logger = core.LoggingLogger()
             elif logger == "wandb":
-                logger = core.WandbLogger(project=task.__class__.__name__)
+                if self.project_wandb is None:
+                    self.project_wandb = task.__class__.__name__
+                logger = core.WandbLogger(
+                    project=self.project_wandb, name=self.name_wandb, dir=self.dir_wandb
+                )
             else:
                 raise ValueError("Unknown logger `%s`" % logger)
         self.meter = core.Meter(
