@@ -1,14 +1,26 @@
 from .task import Task
 
-from .property_prediction import PropertyPrediction, PropertyPrediction_local, MultipleBinaryClassification, \
-    NodePropertyPrediction, InteractionPrediction, Unsupervised
-from .pretrain import EdgePrediction, AttributeMasking, ContextPrediction, DistancePrediction, \
-    AnglePrediction, DihedralPrediction
-from .generation import AutoregressiveGeneration, GCPNGeneration
-from .retrosynthesis import CenterIdentification, SynthonCompletion, Retrosynthesis
-from .reasoning import KnowledgeGraphCompletion
 from .contact_prediction import ContactPrediction
-
+from .generation import AutoregressiveGeneration, GCPNGeneration
+from .pretrain import (
+    AnglePrediction,
+    AttributeMasking,
+    AttributeMasking_IG_00,
+    ContextPrediction,
+    DihedralPrediction,
+    DistancePrediction,
+    EdgePrediction,
+)
+from .property_prediction import (
+    InteractionPrediction,
+    MultipleBinaryClassification,
+    NodePropertyPrediction,
+    PropertyPrediction,
+    PropertyPrediction_local,
+    Unsupervised,
+)
+from .reasoning import KnowledgeGraphCompletion
+from .retrosynthesis import CenterIdentification, Retrosynthesis, SynthonCompletion
 
 _criterion_name = {
     "mse": "mean squared error",
@@ -39,12 +51,24 @@ def _get_metric_name(metric):
 
 
 __all__ = [
-    "PropertyPrediction", "PropertyPrediction_local", "MultipleBinaryClassification", "NodePropertyPrediction", "InteractionPrediction",
+    "PropertyPrediction",
+    "PropertyPrediction_local",
+    "MultipleBinaryClassification",
+    "NodePropertyPrediction",
+    "InteractionPrediction",
     "Unsupervised",
-    "EdgePrediction", "AttributeMasking", "ContextPrediction", "DistancePrediction", "AnglePrediction",
+    "EdgePrediction",
+    "AttributeMasking",
+    "AttributeMasking_IG_00",
+    "ContextPrediction",
+    "DistancePrediction",
+    "AnglePrediction",
     "DihedralPrediction",
-    "AutoregressiveGeneration", "GCPNGeneration",
-    "CenterIdentification", "SynthonCompletion", "Retrosynthesis",
+    "AutoregressiveGeneration",
+    "GCPNGeneration",
+    "CenterIdentification",
+    "SynthonCompletion",
+    "Retrosynthesis",
     "KnowledgeGraphCompletion",
     "ContactPrediction",
 ]
