@@ -94,34 +94,41 @@ class WandbLogger(LoggingLogger):
         kwargs: keyword arguments for `wandb.init`_
     """
 
-    def __init__(self, project=None, name=None, dir=None, **kwargs):
+    def __init__(self, project=None, name=None, dir=None, rank=0, **kwargs):
         super(WandbLogger, self).__init__()
         try:
             import wandb
         except ModuleNotFoundError:
-            raise ModuleNotFoundError("Wandb is not found. Please install it with `pip install wandb`")
-
-        if wandb.run is not None:
-            warnings.warn(
-                "There is a wandb run already in progress and newly created instances of `WandbLogger` will reuse "
-                "this run. If this is not desired, call `wandb.finish()` or `WandbLogger.finish()` before "
-                "instantiating `WandbLogger`."
+            raise ModuleNotFoundError(
+                "Wandb is not found. Please install it with `pip install wandb`"
             )
-            self.run = wandb.run
-        else:
-            self.run = wandb.init(project=project, name=name, dir=dir, **kwargs)
 
-        self.run.define_metric("train/batch/*", step_metric="batch", summary="none")
-        for split in ["train", "valid", "test"]:
-            self.run.define_metric("%s/epoch/*" % split, step_metric="epoch")
+        if rank == 0:
+            if wandb.run is not None:
+                warnings.warn(
+                    "There is a wandb run already in progress and newly created instances of `WandbLogger` will reuse "
+                    "this run. If this is not desired, call `wandb.finish()` or `WandbLogger.finish()` before "
+                    "instantiating `WandbLogger`."
+                )
+                self.run = wandb.run
+            else:
+                self.run = wandb.init(project=project, name=name, dir=dir, **kwargs)
+
+            self.run.define_metric("train/batch/*", step_metric="batch", summary="none")
+            for split in ["train", "valid", "test"]:
+                self.run.define_metric("%s/epoch/*" % split, step_metric="epoch")
+        else:
+            self.run = None
 
     def log(self, record, step_id, category="train/batch"):
         super(WandbLogger, self).log(record, step_id, category)
         record = {"%s/%s" % (category, k): v for k, v in record.items()}
         step_name = category.split("/")[-1]
         record[step_name] = step_id
-        self.run.log(record)
+        if self.run is not None:
+            self.run.log(record)
 
     def log_config(self, confg_dict):
         super(WandbLogger, self).log_config(confg_dict)
-        self.run.config.update(confg_dict)
+        if self.run is not None:
+            self.run.config.update(confg_dict)
